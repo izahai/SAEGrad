@@ -29,30 +29,44 @@ class GradientTracker:
                 
             module = named_modules[clean_name]
             
-            # 1. Forward hook to capture input activation (X)
+            # 1. Forward hook to capture input activation (X) reduced to the feature dimension
             def create_forward_hook(layer_name):
                 def forward_hook(mod, m_input, m_output):
-                    # m_input[0] is the tensor entering the layer
-                    self._current_activations[layer_name] = m_input[0].detach().cpu()
+                    X = m_input[0].detach().cpu()
+                    # X shape is typically [Batch, Tokens, Input_Channels] (e.g., [1, 288, 1280])
+                    # Average across Batch (dim 0) and Tokens (dim 1) to isolate the 1280 features
+                    if X.ndim == 3:
+                        X_reduced = X.mean(dim=(0, 1)) 
+                    elif X.ndim == 2:
+                        X_reduced = X.mean(dim=0)
+                    else:
+                        X_reduced = X.flatten() # Fallback
+                        
+                    self._current_activations[layer_name] = X_reduced
                 return forward_hook
 
-            # 2. Backward hook to capture error signal (delta)
+            # 2. Backward hook to capture error signal (delta) reduced to the feature dimension
             def create_backward_hook(layer_name):
                 def backward_hook(mod, grad_input, grad_output):
-                    # grad_output[0] is the error signal delta moving backward
                     if grad_output[0] is not None:
                         delta = grad_output[0].detach().cpu()
-                        X = self._current_activations.get(layer_name)
-                        
-                        if X is not None:
-                            # Flatten both components into 1D vectors
-                            X_flat = X.flatten()
-                            delta_flat = delta.flatten()
+                        # grad_output shape matches the layer's output: [Batch, Tokens, Output_Channels] (e.g., [1, 288, 10240])
+                        # Average across Batch and Tokens to isolate the 10240 features
+                        if delta.ndim == 3:
+                            delta_reduced = delta.mean(dim=(0, 1))
+                        elif delta.ndim == 2:
+                            delta_reduced = delta.mean(dim=0)
+                        else:
+                            delta_reduced = delta.flatten()
                             
-                            # Concatenate them side-by-side into a single vector
-                            combined_vector = torch.cat([X_flat, delta_flat])
+                        X_reduced = self._current_activations.get(layer_name)
+                        
+                        if X_reduced is not None:
+                            # Both are now 1D vectors: X_reduced is [1280], delta_reduced is [10240]
+                            # Concatenate them into a single vector of size [11520]
+                            combined_vector = torch.cat([delta_reduced, X_reduced]) 
                             self.gradient_history[layer_name].append(combined_vector)
-                return backward_hook # <-- FIXED: Changed from 'return hook' to 'return backward_hook'
+                return backward_hook
 
             # Register both hooks safely using PyTorch's modern full backward hook
             self.hooks.append(module.register_forward_hook(create_forward_hook(name)))
