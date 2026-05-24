@@ -8,50 +8,71 @@ import torch.nn
 class GradientTracker:
     def __init__(self, layer_names: list[str]):
         self.layer_names = layer_names
-        # Structure: {layer_name: [step_0_grad_vector, step_1_grad_vector, ...]}
+        # Maps layer -> list of concatenated [activation, error_signal] vectors
         self.gradient_history: Dict[str, list[torch.Tensor]] = {name: [] for name in layer_names}
         self.hooks = []
+        # Temporary cache to pass activations from forward to backward pass
+        self._current_activations = {}
 
     def register_hooks(self, model: torch.nn.Module):
-        # Create a mapping of named modules for quick lookup
         named_modules = dict(model.named_modules())
         
         for name in self.layer_names:
             if name not in named_modules:
-                warnings.warn(f"Layer '{name}' not found in the model. Skipping gradient tracking.")
+                warnings.warn(f"Layer '{name}' not found in the model. Skipping tracker.")
                 continue
                 
             module = named_modules[name]
             
-            # Define hook to capture input activations and error signals (grad_output)
-            def create_hook(layer_name):
-                def hook(mod, grad_input, grad_output):
-                    # grad_output[0] is the error signal delta
-                    # mod.saved_input is cached from a forward hook or extracted via custom setup.
-                    # Alternatively, PyTorch calculates the direct weight gradient for us:
-                    if mod.weight.grad is not None:
-                        # Flatten the 2D gradient matrix into a 1D vector
-                        grad_vector = mod.weight.grad.detach().cpu().flatten()
-                        self.gradient_history[layer_name].append(grad_vector)
-                return hook
+            # 1. Forward hook to capture input activation (X)
+            def create_forward_hook(layer_name):
+                def forward_hook(mod, m_input, m_output):
+                    # m_input[0] is the tensor entering the layer
+                    self._current_activations[layer_name] = m_input[0].detach().cpu()
+                return forward_hook
 
-            # Using full weight gradient captures exactly (input activation * error signal)
-            # resolved over the batch dimension
-            handle = module.register_backward_hook(create_hook(name))
-            self.hooks.append(handle)
+            # 2. Backward hook to capture error signal (delta)
+            def create_backward_hook(layer_name):
+                def backward_hook(mod, grad_input, grad_output):
+                    # grad_output[0] is the error signal delta moving backward
+                    if grad_output[0] is not None:
+                        delta = grad_output[0].detach().cpu()
+                        X = self._current_activations.get(layer_name)
+                        
+                        if X is not None:
+                            # Flatten both components into 1D vectors
+                            X_flat = X.flatten()
+                            delta_flat = delta.flatten()
+                            
+                            # Concatenate them side-by-side into a single vector
+                            combined_vector = torch.cat([X_flat, delta_flat])
+                            self.gradient_history[layer_name].append(combined_vector)
+                return backward_hook # <-- FIXED: Changed from 'return hook' to 'return backward_hook'
+
+            # Register both hooks safely using PyTorch's modern full backward hook
+            self.hooks.append(module.register_forward_hook(create_forward_hook(name)))
+            self.hooks.append(module.register_full_backward_hook(create_backward_hook(name)))
 
     def save_history(self, save_dir: str):
         os.makedirs(save_dir, exist_ok=True)
-        for name, grads in self.gradient_history.items():
-            if not grads:
+        for name, vectors in self.gradient_history.items():
+            if not vectors:
                 continue
-            # Stack all steps together: [num_iterations, weight_dim]
-            stacked_grads = torch.stack(grads)
+            
+            # Since sequence lengths or dynamic batches could theoretically shift sizes, 
+            # stacking requires uniform vectors. If they are identical, stack them into a 2D matrix.
+            try:
+                stacked_data = torch.stack(vectors)
+            except RuntimeError:
+                # Fallback if dimensions vary across dynamic steps
+                stacked_data = vectors
+
             sanitized_name = name.replace(".", "_")
-            save_file = os.path.join(save_dir, f"grads_{sanitized_name}.pt")
-            torch.save(stacked_grads, save_file)
-            print(f"Saved gradient history for {name} to {save_file}")
+            save_file = os.path.join(save_dir, f"components_{sanitized_name}.pt")
+            torch.save(stacked_data, save_file)
+            print(f"Saved memory-efficient components for {name} to {save_file}")
 
     def remove_hooks(self):
         for handle in self.hooks:
             handle.remove()
+        self._current_activations.clear()

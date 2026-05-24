@@ -25,6 +25,7 @@ except ModuleNotFoundError:
     retrieve_flux_timesteps = None
 
 from utils.esd_checkpoint import save_esd_checkpoint
+from utils.grad_track import GradientTracker
 
 try:
     from utils.sd_utils import esd_sd_call
@@ -525,6 +526,13 @@ def run_esd_training(config: ESDConfig) -> str:
 
     prepared = adapter.create_prepared_component(pipe, config.train_method, config)
     prepared.use_student()
+    
+    
+    # --- Track Gradients ---
+    tracker = None
+    if config.save_gradient:
+        tracker = GradientTracker(config.save_gradient)
+        tracker.register_hooks(prepared.component)
 
     learning_rate = adapter.resolve_learning_rate(config)
     optimizer = torch.optim.Adam(prepared.parameters(), lr=learning_rate)
@@ -541,6 +549,11 @@ def run_esd_training(config: ESDConfig) -> str:
         postfix = {"esd_loss": f"{loss.item():.4f}", "timestep": step_result.timestep_index}
         postfix.update({key: str(value) for key, value in step_result.metrics.items()})
         pbar.set_postfix(postfix)
+        
+    # --- Save Gradients and Clean Up ---
+    if tracker:
+        tracker.save_history(config.save_path)
+        tracker.remove_hooks()
 
     prepared.use_student()
     checkpoint_path = adapter.build_checkpoint_path(config)
