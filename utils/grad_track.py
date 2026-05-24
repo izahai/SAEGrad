@@ -18,11 +18,16 @@ class GradientTracker:
         named_modules = dict(model.named_modules())
         
         for name in self.layer_names:
-            if name not in named_modules:
+            # --- Clean trailing weights/biases if provided ---
+            clean_name = name
+            if name.endswith(".weight") or name.endswith(".bias"):
+                clean_name = ".".join(name.split(".")[:-1])
+            
+            if clean_name not in named_modules:
                 warnings.warn(f"Layer '{name}' not found in the model. Skipping tracker.")
                 continue
                 
-            module = named_modules[name]
+            module = named_modules[clean_name]
             
             # 1. Forward hook to capture input activation (X)
             def create_forward_hook(layer_name):
