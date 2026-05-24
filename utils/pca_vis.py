@@ -1,30 +1,32 @@
 import os
-import glob
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
+from typing import List
 
-def visualize_multiple_gradients_pca(save_dir: str, file_pattern: str = "components_*.pt"):
+def visualize_multiple_gradients_pca(save_dir: str, file_list: List[str]):
     """
-    Loads all matching gradient history tensors from save_dir, runs a unified PCA 
-    to reduce them to a shared 2D space, and plots them to observe clustering.
+    Loads manually specified gradient history tensor files from save_dir, 
+    runs a unified PCA to reduce them to a shared 2D space, and plots them.
     """
-    # 1. Find all matching tensor files
-    search_path = os.path.join(save_dir, file_pattern)
-    file_paths = sorted(glob.glob(search_path))
-    
-    if not file_paths:
-        raise FileNotFoundError(f"No files found matching pattern: {search_path}")
+    if not file_list:
+        raise ValueError("The file_list cannot be empty. Please provide at least one .pt file.")
         
-    print(f"Found {len(file_paths)} layer tensor files to analyze.")
+    print(f"Targeting {len(file_list)} manual layer tensor files for analysis.")
 
     all_data_list = []
     layer_metadata = [] # Tracks which rows belong to which layer
     
-    # 2. Load and stack all data into one giant matrix
-    for path in file_paths:
-        filename = os.path.basename(path)
+    # 2. Load and stack all specified data into one giant matrix
+    for filename in file_list:
+        path = os.path.join(save_dir, filename)
+        
+        # Verify the file actually exists
+        if not os.path.exists(path):
+            print(f"Skipping {filename}: File not found at {path}")
+            continue
+            
         # Extract clean layer name from filename
         layer_name = filename.replace("components_", "").replace(".pt", "")
         
@@ -54,10 +56,10 @@ def visualize_multiple_gradients_pca(save_dir: str, file_pattern: str = "compone
         })
 
     if not all_data_list:
-        print("No valid 2D tensor data loaded. Exiting.")
+        print("No valid 2D tensor data loaded from the provided list. Exiting.")
         return
 
-    # Combine everything into shape [Total_Layers * 200, 11520]
+    # Combine everything into shape [Total_Layers * steps, features]
     combined_matrix = np.vstack(all_data_list)
     print(f"\nUnified dataset matrix built with shape: {combined_matrix.shape}")
 
@@ -93,7 +95,7 @@ def visualize_multiple_gradients_pca(save_dir: str, file_pattern: str = "compone
         plt.plot(layer_2d[:, 0], layer_2d[:, 1], linestyle='-', alpha=0.25, color='gray')
         
         # Scatter points with a step gradient (Dark = Step 0, Bright/Saturated = Step 200)
-        scatter = plt.scatter(
+        plt.scatter(
             layer_2d[:, 0], 
             layer_2d[:, 1], 
             c=steps, 
@@ -131,10 +133,17 @@ def visualize_multiple_gradients_pca(save_dir: str, file_pattern: str = "compone
     plt.show()
 
 if __name__ == "__main__":
-    # Point this to your actual training logs directory
     TARGET_DIR = "esd-models/sd/"
     
+    # --- INPUT YOUR FILES MANUALLY HERE ---
+    # Type out the exact filenames you want to include in the PCA analysis
+    MY_FILES = [
+        "components_layer1.pt",
+        "components_layer2.pt",
+        "components_layer3.pt"
+    ]
+    
     try:
-        visualize_multiple_gradients_pca(save_dir=TARGET_DIR)
+        visualize_multiple_gradients_pca(save_dir=TARGET_DIR, file_list=MY_FILES)
     except Exception as e:
         print(f"\nExecution failed: {e}")
