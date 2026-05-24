@@ -72,7 +72,7 @@ class GradientTracker:
             self.hooks.append(module.register_forward_hook(create_forward_hook(name)))
             self.hooks.append(module.register_full_backward_hook(create_backward_hook(name)))
 
-    def save_history(self, save_dir: str):
+    def save_history(self, save_dir: str, prompt: str):
         os.makedirs(save_dir, exist_ok=True)
         for name, vectors in self.gradient_history.items():
             if not vectors:
@@ -87,7 +87,7 @@ class GradientTracker:
                 stacked_data = vectors
 
             sanitized_name = name.replace(".", "_")
-            save_file = os.path.join(save_dir, f"components_{sanitized_name}.pt")
+            save_file = os.path.join(save_dir, f"components_{prompt}_{sanitized_name}.pt")
             torch.save(stacked_data, save_file)
             print(f"Saved memory-efficient components for {name} to {save_file}")
 

@@ -552,7 +552,7 @@ def run_esd_training(config: ESDConfig) -> str:
         
     # --- Save Gradients and Clean Up ---
     if tracker:
-        tracker.save_history(config.save_path)
+        tracker.save_history(config.save_path, config.erase_concept)
         tracker.remove_hooks()
 
     prepared.use_student()
