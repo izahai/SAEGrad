@@ -5,95 +5,136 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 
-def visualize_gradient_pca(save_dir: str, layer_name: str = "mid_block_attentions_0_transformer_blocks_0_ff_net_0_proj_weight"):
+def visualize_multiple_gradients_pca(save_dir: str, file_pattern: str = "components_*.pt"):
     """
-    Loads the saved [200, 11520] tensor, performs PCA down to 2 dimensions,
-    and plots the trajectory across training steps.
+    Loads all matching gradient history tensors from save_dir, runs a unified PCA 
+    to reduce them to a shared 2D space, and plots them to observe clustering.
     """
-    # 1. Locate and load the saved PyTorch tensor
-    file_path = os.path.join(save_dir, f"components_{layer_name}.pt")
+    # 1. Find all matching tensor files
+    search_path = os.path.join(save_dir, file_pattern)
+    file_paths = sorted(glob.glob(search_path))
     
-    if not os.path.exists(file_path):
-        # Fallback search if name formatting differs slightly
-        possible_files = glob.glob(os.path.join(save_dir, f"*{layer_name}*.pt"))
-        if possible_files:
-            file_path = possible_files[0]
-        else:
-            raise FileNotFoundError(f"Could not find saved component file at {file_path}. "
-                                    f"Please check your save_path or layer name.")
-
-    print(f"Loading data from: {file_path}")
-    # Load tensor and convert to numpy array
-    data_tensor = torch.load(file_path, map_location="cpu")
-    
-    if isinstance(data_tensor, list):
-        # If the tracker fell back to a list of tensors instead of a stacked matrix
-        data_tensor = torch.stack(data_tensor)
+    if not file_paths:
+        raise FileNotFoundError(f"No files found matching pattern: {search_path}")
         
-    data_np = data_tensor.float().numpy()
+    print(f"Found {len(file_paths)} layer tensor files to analyze.")
+
+    all_data_list = []
+    layer_metadata = [] # Tracks which rows belong to which layer
     
-    print(f"Loaded tensor shape: {data_np.shape}") # Should be [200, 11520]
-    
-    # 2. Apply PCA to reduce from 11520 dimensions down to 2 dimensions
-    n_components = 2
-    pca = PCA(n_components=n_components)
-    data_2d = pca.fit_transform(data_np)
-    
+    # 2. Load and stack all data into one giant matrix
+    for path in file_paths:
+        filename = os.path.basename(path)
+        # Extract clean layer name from filename
+        layer_name = filename.replace("components_", "").replace(".pt", "")
+        
+        print(f"Loading: {filename}...")
+        data_tensor = torch.load(path, map_location="cpu")
+        
+        if isinstance(data_tensor, list):
+            data_tensor = torch.stack(data_tensor)
+            
+        data_np = data_tensor.float().numpy()
+        
+        # Guard rail: ensure it's a 2D matrix [steps, features]
+        if data_np.ndim != 2:
+            print(f"Skipping {filename}: expected 2D matrix shape, got {data_np.shape}")
+            continue
+            
+        num_steps, num_features = data_np.shape
+        
+        # Append to our global dataset matrix
+        all_data_list.append(data_np)
+        
+        # Keep track of where this layer lives in the stacked matrix
+        layer_metadata.append({
+            "name": layer_name,
+            "num_steps": num_steps,
+            "num_features": num_features
+        })
+
+    if not all_data_list:
+        print("No valid 2D tensor data loaded. Exiting.")
+        return
+
+    # Combine everything into shape [Total_Layers * 200, 11520]
+    combined_matrix = np.vstack(all_data_list)
+    print(f"\nUnified dataset matrix built with shape: {combined_matrix.shape}")
+
+    # 3. Fit a single, joint PCA space for absolute comparison
+    print("Fitting unified PCA model...")
+    pca = PCA(n_components=2)
+    combined_2d = pca.fit_transform(combined_matrix)
     explained_variance = pca.explained_variance_ratio_
-    print(f"PCA complete. Variance explained by PC1: {explained_variance[0]:.2%}, PC2: {explained_variance[1]:.2%}")
+    print(f"PCA complete! Total variance explained -> PC1: {explained_variance[0]:.2%}, PC2: {explained_variance[1]:.2%}")
 
-    # 3. Plotting the 2D Trajectory
-    num_steps = data_np.shape[0]
-    steps = np.arange(num_steps) # Array from 0 to 199 for color mapping
+    # 4. Plotting the results
+    plt.figure(figsize=(12, 9), dpi=120)
+    
+    # Available color maps for distinct layers (fades from dark to light/vibrant)
+    colormaps = ['Purples', 'Blues', 'Greens', 'Oranges', 'Reds', 'YlOrBr', 'PuRd', 'GnBu']
+    
+    current_row_idx = 0
+    
+    # Unpack each layer sequence out of the shared PCA coordinates
+    for i, meta in enumerate(layer_metadata):
+        start_idx = current_row_idx
+        end_idx = start_idx + meta["num_steps"]
+        current_row_idx = end_idx # increment pointer
+        
+        # Isolate this layer's 2D path
+        layer_2d = combined_2d[start_idx:end_idx]
+        steps = np.arange(meta["num_steps"])
+        
+        # Select a cyclic colormap choice from our list
+        cmap_choice = colormaps[i % len(colormaps)]
+        
+        # Draw sequential trajectory connecting lines
+        plt.plot(layer_2d[:, 0], layer_2d[:, 1], linestyle='-', alpha=0.25, color='gray')
+        
+        # Scatter points with a step gradient (Dark = Step 0, Bright/Saturated = Step 200)
+        scatter = plt.scatter(
+            layer_2d[:, 0], 
+            layer_2d[:, 1], 
+            c=steps, 
+            cmap=cmap_choice, 
+            s=40, 
+            edgecolors='black', 
+            linewidths=0.3,
+            alpha=0.85,
+            label=meta["name"]
+        )
+        
+        # Highlight start and end landmarks for this specific cluster trajectory
+        plt.scatter(layer_2d[0, 0], layer_2d[0, 1], marker='X', s=90, color='black', alpha=0.7)
+        plt.scatter(layer_2d[-1, 0], layer_2d[-1, 1], marker='o', s=80, facecolors='none', edgecolors='red', linewidths=1.5)
 
-    plt.figure(figsize=(10, 8), dpi=120)
+    # Styling and Cluster interpretation
+    plt.title("Unified PCA Space: Layer Clustering & Gradient Trajectories", fontsize=14, pad=15)
+    plt.xlabel(f"Principal Component 1 ({explained_variance[0]:.1%})", fontsize=11)
+    plt.ylabel(f"Principal Component 2 ({explained_variance[1]:.1%})", fontsize=11)
     
-    # Draw line tracing the trajectory through optimization space
-    plt.plot(data_2d[:, 0], data_2d[:, 1], color='gray', linestyle='-', alpha=0.3, zorder=1)
+    # Use a custom legend handling strings smoothly
+    plt.legend(loc='upper left', bbox_to_anchor=(1.02, 1), title="Tracked Layers\n(Color fades Dark → Light over time)", fontsize=9)
+    plt.grid(True, linestyle='--', alpha=0.4)
     
-    # Scatter plot with 'viridis' colormap to represent time progression
-    scatter = plt.scatter(
-        data_2d[:, 0], 
-        data_2d[:, 1], 
-        c=steps, 
-        cmap='viridis', 
-        s=45, 
-        edgecolors='black', 
-        linewidths=0.5,
-        zorder=2
-    )
+    # Add an explanatory note on the plot
+    plt.figtext(0.15, 0.02, "* Note: 'X' marks training Step 0. Red circles mark training Step 200.", 
+                fontsize=9, style='italic', color='dimgray')
     
-    # Highlight Start and End points explicitly
-    plt.scatter(data_2d[0, 0], data_2d[0, 1], c='crimson', marker='X', s=150, label='Start (Step 0)', zorder=3)
-    plt.scatter(data_2d[-1, 0], data_2d[-1, 1], c='cyan', marker='P', s=150, label='End (Step 200)', zorder=3)
-
-    # Cosmetics & Labels
-    plt.title(f"2D PCA Trajectory of Activations & Gradients\nLayer: {layer_name}", fontsize=12, pad=15)
-    plt.xlabel(f"Principal Component 1 ({explained_variance[0]:.1%})", fontsize=10)
-    plt.ylabel(f"Principal Component 2 ({explained_variance[1]:.1%})", fontsize=10)
-    
-    # Colorbar to decode which color matches which training iteration
-    cbar = plt.colorbar(scatter)
-    cbar.set_label('Training Optimization Step', fontsize=10)
-    
-    plt.legend(loc='best')
-    plt.grid(True, linestyle='--', alpha=0.5)
     plt.tight_layout()
     
-    # Save chart and display
-    output_img_path = os.path.join(save_dir, f"pca_{layer_name}.png")
-    plt.savefig(output_img_path)
-    print(f"Successfully saved 2D visualization plot to: {output_img_path}")
+    # Save unified map
+    output_img_path = os.path.join(save_dir, "unified_layer_clusters_pca.png")
+    plt.savefig(output_img_path, bbox_inches='tight')
+    print(f"\n[Success] Unified visualization plot saved to: {output_img_path}")
     plt.show()
 
 if __name__ == "__main__":
-    # Replace this string path with your actual config.save_path folder
-    # e.g., "esd-models/sd/"
-    OUTPUT_DIRECTORY = "esd-models/sd/" 
+    # Point this to your actual training logs directory
+    TARGET_DIR = "esd-models/sd/"
     
-    # Run the function
     try:
-        visualize_gradient_pca(save_dir=OUTPUT_DIRECTORY)
+        visualize_multiple_gradients_pca(save_dir=TARGET_DIR)
     except Exception as e:
-        print(f"Error executing visualization: {e}")
-        print("\nMake sure your pipeline run finished completely and saved the '.pt' files into your specified save directory.")
+        print(f"\nExecution failed: {e}")
