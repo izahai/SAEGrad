@@ -87,3 +87,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    gradients = torch.load("esd-models/sd/components_mid_block_attentions_0_transformer_blocks_0_ff_net_0_proj_weight.pt")
+
+    print(gradients.shape)  # Output: torch.Size([iterations, flattened_weights])
+    print(gradients.dtype)  # Matches your training precision (e.g., torch.float32 or torch.bfloat16)
+    print(gradients.device) # Extracted to 'cpu' for safe cross-device loading
