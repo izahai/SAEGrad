@@ -2,9 +2,12 @@ import torch
 import random
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Iterator, Mapping, Optional
+from tqdm import tqdm
+import torch.optim as optim
+
+from diffusers import StableDiffusionPipeline
 
 from utils.sd_utils import esd_sd_call
-
 
 @dataclass
 class AnchorConfig:
@@ -13,7 +16,8 @@ class AnchorConfig:
     num_inference_steps: int # default 50
     iterations: int
     lr: Optional[float]
-    scheduler: str
+    batch_size: int
+    torch_dtype: torch.dtype = torch.bfloat16
     device: str = "cuda:0"
     
     margin_hyperpara: float # distance margin
@@ -38,6 +42,7 @@ class SDAnchorTrainer():
     def __init__(self, config: AnchorConfig):
         self.config = config
         self.default_base_model_id = "CompVis/stable-diffusion-v1-4"
+        default_save_path = "anchor-embeds/"
         
     def prepare_context(self, pipe, config: AnchorConfig) -> Dict[str, Any]:
         with torch.no_grad():
@@ -88,6 +93,8 @@ class SDAnchorTrainer():
                 output_type="latent",
             ).images
             
+            # pipe.scheduler.timesteps: tensor([981, 961, 941, 921, 901,  ...,  81,  61,  41,  21,   1])
+            # we choose the index (run_till_timestep) in that array
             timestep = pipe.scheduler.timesteps[run_till_timestep]
             
             # Calculate the predicted noise of target prompt
@@ -170,3 +177,73 @@ class SDAnchorTrainer():
         total_loss = large_t_loss + small_t_loss
         
         return total_loss
+    
+    
+def run_anchor_training(config: AnchorConfig) -> str:
+    """
+    Executes the anchor embedding optimization loop.
+    
+    Args:
+        config (AnchorConfig): The configuration for the training run.
+        
+    Returns:
+        str: A status message indicating completion and final loss.
+    """
+    trainer = SDAnchorTrainer(config)
+        
+    # 2. Load the pipeline
+    print(f"Loading Stable Diffusion pipeline: {trainer.default_base_model_id}...")
+    pipe = StableDiffusionPipeline.from_pretrained(
+        trainer.default_base_model_id,
+        torch_dtype=config.torch_dtype
+    ).to(config.device)
+    
+    # Freeze the pipeline parameters since we are only optimizing the anchor embeddings
+    pipe.vae.requires_grad_(False)
+    pipe.text_encoder.requires_grad_(False)
+    pipe.unet.requires_grad_(False)
+    
+    # 3. Prepare the embeddings context
+    context = trainer.prepare_context(pipe, config)
+    
+    # 4. Initialize the optimizer
+    # We only pass the anchor_embeds to the optimizer since that's what we're tuning
+    optimizer = optim.Adam([context["anchor_embeds"]], lr=config.lr)
+    
+    print(f"Starting anchor training for {config.iterations} iterations on {config.device}...")
+    
+    # 5. The Training Loop
+    # We leave the models in eval mode since they are frozen, though the gradients 
+    # will flow back to the anchor_embeds leaf tensor.
+    for i in tqdm(range(config.iterations), desc="Optimizing Anchor Embeds"):
+        optimizer.zero_grad()
+        
+        # Forward pass / get step result
+        step_result = trainer.training_step(pipe, context, config)
+        
+        # Format the timestep index as a batched tensor for compute_loss
+        t_tensor = torch.tensor([step_result.timestep_index], device=config.device)
+        
+        # Compute loss
+        loss_tensor = trainer.compute_loss(
+            predicted_noise_target=step_result.target_noise,
+            predicted_noise_anchor=step_result.anchor_noise,
+            t=t_tensor
+        )
+        
+        # Aggregate loss across the batch (assuming batch size of 1, mean is safe)
+        loss = loss_tensor.mean()
+        
+        # Backpropagation
+        loss.backward()
+        
+        # Update embeddings
+        optimizer.step()
+        
+        # Optional: Print loss every 50 steps
+        if i % 50 == 0 or i == config.iterations - 1:
+            tqdm.write(f"Iteration {i:04d} | Timestep: {step_result.timestep_index:03d} | Loss: {loss.item():.4f}")
+
+    # 6. Return Completion Status
+    return f"Success! Anchor training completed {config.iterations} iterations. Final loss: {loss.item():.4f}."
+    
