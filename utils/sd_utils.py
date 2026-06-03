@@ -69,7 +69,7 @@ def esd_sd_call(
     start_latents=None,
     **kwargs,
 ):
-    r"""
+    """
     The call function to the pipeline for generation.
     """
 
