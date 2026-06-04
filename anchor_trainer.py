@@ -50,6 +50,8 @@ class AnchorConfig:
     smooth_function: str # "linear", "bell"
     center_t: Optional[float]  # if using bell smooth function, 35
     sigma: Optional[float] # if using bell smooth function, 5
+    sigmoid_k: Optional[float] # if using sigmoid smooth function, 0.4
+    sigmoid_mid: Optional[float] # if using sigmoid smooth function, 24.5
     
     # --- DEFAULT FIELDS (Must go last) ---
     torch_dtype: torch.dtype = torch.bfloat16
@@ -175,6 +177,22 @@ class SDAnchorTrainer():
         bell_weight = torch.exp(-((t.float() - mu) ** 2) / (2 * (sigma ** 2)))
         
         return 1.0 - bell_weight, bell_weight
+    
+    def get_sigmoid_loss_weights(self, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Get alpha, (1-alpha) at timestep index t using a parameterized sigmoid function.
+        Assumes t ranges from 0 to (num_inference_steps - 1).
+        """
+        # Retrieve hyperparameters from config
+        t_mid = self.config.sigmoid_mid if self.config.sigmoid_mid is not None else 24.5
+        k = self.config.sigmoid_k if self.config.sigmoid_k is not None else 0.4
+        
+        # Calculate alpha(t) using the sigmoid formula
+        # t.float() ensures we don't hit integer division issues
+        alpha = 1.0 / (1.0 + torch.exp(-k * (t.float() - t_mid)))
+        beta = 1.0 - alpha
+        
+        return alpha, beta
         
     def compute_loss(
         self,
@@ -188,6 +206,8 @@ class SDAnchorTrainer():
         
         elif self.config.smooth_function == "linear":
             alpha, beta = self.get_linear_loss_weights(t)
+        elif self.config.smooth_function == "sigmoid":
+            alpha, beta = self.get_sigmoid_loss_weights(t)
         
         dims_to_extend = len(predicted_noise_target.shape) - 1 # (BCWH) -> (4-1)=3
         
@@ -201,11 +221,11 @@ class SDAnchorTrainer():
             dim=list(range(1, len(predicted_noise_target.shape))) # dim=[1,2,3]
         ) # (B,)
         
-        # Large t: alpha * mse
-        large_t_loss = alpha * mse_distance
+        # mse
+        large_t_loss = beta * mse_distance
         
-        # Small t: beta * (D - mse)
-        small_t_loss = beta * (self.config.margin_hyperpara - mse_distance)
+        # (D - mse)
+        small_t_loss = alpha * (self.config.margin_hyperpara - mse_distance)
         
         total_loss = large_t_loss + small_t_loss
         
