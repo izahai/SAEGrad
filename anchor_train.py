@@ -26,10 +26,14 @@ def main():
     parser.add_argument("--num_inference_steps", type=int, default=50, help="Total inference steps for the scheduler.")
     
     # Loss & Smoothing Configuration
-    parser.add_argument("--margin_hyperpara", type=float, default=1.0, help="Distance margin hyperparameter for small timesteps.")
-    parser.add_argument("--smooth_function", type=str, choices=["linear", "bell", "sigmoid"], default="sigmoid", help="Smoothing function to use for loss weighting.")
+    # Added "sigmoid" to choices
+    parser.add_argument("--smooth_function", type=str, choices=["linear", "bell", "sigmoid"], default="linear", help="Smoothing function to use for loss weighting.")
+    
+    # Gaussian (Bell) Specific Hyperparameters
     parser.add_argument("--center_t", type=float, default=30.0, help="Center t parameter (mu) if using the 'bell' smooth function.")
     parser.add_argument("--sigma", type=float, default=10.0, help="Sigma parameter if using the 'bell' smooth function.")
+    
+    # Sigmoid Specific Hyperparameters
     parser.add_argument("--sigmoid_mid", type=float, default=24.5, help="Midpoint of the 0-49 step range for the 'sigmoid' function.")
     parser.add_argument("--sigmoid_k", type=float, default=0.40, help="Steepness factor for the 'sigmoid' function.")
     
@@ -40,13 +44,14 @@ def main():
     args = parser.parse_args()
 
     print("=== Initializing Anchor Embeddings Training ===")
-    print(f"Target Prompt: '{args.target_prompt}'")
-    print(f"Iterations:    {args.iterations}")
-    print(f"Learning Rate: {args.lr}")
-    print(f"Device:        {args.device}")
+    print(f"Target Prompt:   '{args.target_prompt}'")
+    print(f"Iterations:      {args.iterations}")
+    print(f"Learning Rate:   {args.lr}")
+    print(f"Smooth Function: {args.smooth_function}")
+    print(f"Device:          {args.device}")
     print("===============================================")
 
-    # 1. Instantiate the Configuration
+    # 1. Instantiate the Configuration (including new sigmoid attributes)
     config = AnchorConfig(
         target_prompt=args.target_prompt,
         guidance_scale=args.guidance_scale,
@@ -54,13 +59,15 @@ def main():
         iterations=args.iterations,
         lr=args.lr,
         batch_size=args.batch_size,
-        torch_dtype=torch.bfloat16, # Kept as bfloat16 based on your AnchorConfig defaults
+        torch_dtype=torch.bfloat16, 
         device=args.device,
         anchor_save_path=args.save_path,
         margin_hyperpara=args.margin_hyperpara,
         smooth_function=args.smooth_function,
         center_t=args.center_t,
-        sigma=args.sigma
+        sigma=args.sigma,
+        sigmoid_mid=args.sigmoid_mid,  
+        sigmoid_k=args.sigmoid_k      
     )
     
     # 2. Run the Training Loop
@@ -73,12 +80,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-# python main.py \
-#     --target_prompt "A futuristic cyberpunk city at night, neon lights" \
-#     --iterations 1000 \
-#     --lr 0.005 \
-#     --smooth_function "bell" \
-#     --center_t 30.0 \
-#     --sigma 4.0 \
-#     --device "cuda:0"
