@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--iterations", type=int, default=100, help="Number of optimization iterations.")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for the Adam optimizer.")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for generating embeddings.")
+    parser.add_argument("--margin_hyperpara", type=float, default=1.0, help="Distance margin hyperparameter for small timesteps.")
     
     # SD Inference Settings
     parser.add_argument("--guidance_scale", type=float, default=3.0, help="Classifier-free guidance scale.")
