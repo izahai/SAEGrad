@@ -28,7 +28,7 @@ def main():
     
     # Loss & Smoothing Configuration
     # Added "sigmoid" to choices
-    parser.add_argument("--smooth_function", type=str, choices=["linear", "bell", "sigmoid"], default="linear", help="Smoothing function to use for loss weighting.")
+    parser.add_argument("--smooth_function", type=str, choices=["linear", "bell", "sigmoid"], default="sigmoid", help="Smoothing function to use for loss weighting.")
     
     # Gaussian (Bell) Specific Hyperparameters
     parser.add_argument("--center_t", type=float, default=30.0, help="Center t parameter (mu) if using the 'bell' smooth function.")
