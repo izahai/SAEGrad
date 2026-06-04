@@ -193,6 +193,17 @@ class SDAnchorTrainer():
         beta = 1.0 - alpha
         
         return alpha, beta
+    
+    def get_simple_loss(self, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Get static weights (1.0, 0.0) regardless of the timestep.
+        """
+        # torch.ones_like and zeros_like ensure the output matches 
+        # the device (CPU/GPU) and shape of the input tensor 't'
+        alpha = torch.ones_like(t, dtype=torch.float32)
+        beta = torch.zeros_like(t, dtype=torch.float32)
+        
+        return alpha, beta
         
     def compute_loss(
         self,
@@ -203,12 +214,13 @@ class SDAnchorTrainer():
         
         if self.config.smooth_function == "bell":
             alpha, beta = self.get_bell_loss_weights(t)
-        
         elif self.config.smooth_function == "linear":
             alpha, beta = self.get_linear_loss_weights(t)
         elif self.config.smooth_function == "sigmoid":
             alpha, beta = self.get_sigmoid_loss_weights(t)
-        
+        elif self.config.smooth_function == "simple":
+            beta, alpha = self.get_simple_loss(t) # beta = 1.0, alpha = 0.0
+            
         dims_to_extend = len(predicted_noise_target.shape) - 1 # (BCWH) -> (4-1)=3
         
         # Unsqueeze dim from (B,) -> B111
@@ -222,12 +234,12 @@ class SDAnchorTrainer():
         ) # (B,)
         
         # mse
-        large_t_loss = beta * mse_distance
+        mse = beta * mse_distance
         
         # (D - mse)
-        small_t_loss = alpha * (self.config.margin_hyperpara - mse_distance)
+        # D_mse = alpha * (self.config.margin_hyperpara - mse_distance)
         
-        total_loss = large_t_loss + small_t_loss
+        total_loss = mse #+ D_mse
         
         return total_loss
     

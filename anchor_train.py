@@ -36,7 +36,7 @@ def main():
     
     # Sigmoid Specific Hyperparameters
     parser.add_argument("--sigmoid_mid", type=float, default=24.5, help="Midpoint of the 0-49 step range for the 'sigmoid' function.")
-    parser.add_argument("--sigmoid_k", type=float, default=0.40, help="Steepness factor for the 'sigmoid' function.")
+    parser.add_argument("--sigmoid_k", type=float, default=0.20, help="Steepness factor for the 'sigmoid' function.")
     
     # Hardware & File System
     parser.add_argument("--device", type=str, default="cuda:0", help="Device to use for training (e.g., 'cuda:0' or 'cpu').")
