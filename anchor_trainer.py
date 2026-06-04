@@ -101,7 +101,8 @@ class SDAnchorTrainer():
         noise_scale = 0.1
         noise = torch.randn_like(target_embeds) * noise_scale
         
-        anchor_embeds = (target_embeds.clone().detach() + noise).requires_grad_(True)
+        # anchor_embeds = (target_embeds.clone().detach() + noise).requires_grad_(True)
+        anchor_embeds = torch.randn_like(target_embeds, requires_grad=True)
                 
         return {
             "target_embeds": target_embeds,
@@ -112,7 +113,7 @@ class SDAnchorTrainer():
     
     def training_step(self, pipe, context: Dict[str, Any], config: AnchorConfig) -> StepResult:
         
-        run_till_timestep = random.randint(0, config.num_inference_steps - 1)
+        run_till_timestep = random.randint(0, 25 - 1)
         seed = random.randint(0, 2**15)
         
         with torch.no_grad():
