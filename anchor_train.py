@@ -18,7 +18,7 @@ def main():
     
     # Training Hyperparameters
     parser.add_argument("--iterations", type=int, default=100, help="Number of optimization iterations.")
-    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for the Adam optimizer.")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for the Adam optimizer.")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for generating embeddings.")
     parser.add_argument("--margin_hyperpara", type=float, default=1.0, help="Distance margin hyperparameter for small timesteps.")
     
@@ -28,7 +28,7 @@ def main():
     
     # Loss & Smoothing Configuration
     # Added "sigmoid" to choices
-    parser.add_argument("--smooth_function", type=str, choices=["linear", "bell", "sigmoid"], default="sigmoid", help="Smoothing function to use for loss weighting.")
+    parser.add_argument("--smooth_function", type=str, choices=["linear", "bell", "sigmoid", "simple"], default="simple", help="Smoothing function to use for loss weighting.")
     
     # Gaussian (Bell) Specific Hyperparameters
     parser.add_argument("--center_t", type=float, default=30.0, help="Center t parameter (mu) if using the 'bell' smooth function.")
