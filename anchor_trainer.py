@@ -98,11 +98,20 @@ class SDAnchorTrainer():
             else: 
                 print("SD1.4 doen not have timestep cond proj!")
                 
-        noise_scale = 0.1
-        noise = torch.randn_like(target_embeds) * noise_scale
+        alpha = 0.3  # 30% noise, 70% target
+
+        # Generate noise that matches the scale of the target
+        noise = torch.randn_like(target_embeds) * target_embeds.std()
+
+        # Interpolate: (1 - alpha) * target + alpha * noise
+        mixed_embeds = (1 - alpha) * target_embeds.clone().detach() + alpha * noise
+        anchor_embeds = mixed_embeds.requires_grad_(True)
+        
+        # noise_scale = 0.1
+        # noise = torch.randn_like(target_embeds) * noise_scale
         
         # anchor_embeds = (target_embeds.clone().detach() + noise).requires_grad_(True)
-        anchor_embeds = torch.randn_like(target_embeds, requires_grad=True)
+        # anchor_embeds = torch.randn_like(target_embeds, requires_grad=True)
                 
         return {
             "target_embeds": target_embeds,
