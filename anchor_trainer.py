@@ -1,3 +1,4 @@
+import os
 import torch
 import random
 from dataclasses import dataclass, field
@@ -8,6 +9,33 @@ import torch.optim as optim
 from diffusers import StableDiffusionPipeline
 
 from utils.sd_utils import esd_sd_call
+
+def save_anchor_embeddings(anchor_embeds: torch.Tensor, save_dir: str, filename: str = "anchor_embeds.pt") -> str:
+    """
+    Detaches, moves to CPU, and saves the trained anchor embeddings tensor.
+    
+    Args:
+        anchor_embeds (torch.Tensor): The optimized anchor embedding tensor.
+        save_dir (str): Directory where the embedding should be saved.
+        filename (str): Name of the file (defaults to 'anchor_embeds.pt').
+        
+    Returns:
+        str: Absolute path to the saved file.
+    """
+    # 1. Create directory if it doesn't exist
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # 2. Detach from graph and move to CPU to ensure clean loading later
+    clean_embeds = anchor_embeds.detach().cpu()
+    
+    # 3. Construct save path
+    save_path = os.path.join(save_dir, filename)
+    
+    # 4. Save the tensor
+    torch.save({"anchor_embeds": clean_embeds}, save_path)
+    
+    print(f"Anchor embeddings successfully saved to: {save_path}")
+    return save_path
 
 @dataclass
 class AnchorConfig:
@@ -20,6 +48,7 @@ class AnchorConfig:
     torch_dtype: torch.dtype = torch.bfloat16
     device: str = "cuda:0"
     
+    anchor_save_path: str = "anchor-embeds"
     margin_hyperpara: float # distance margin
     smooth_function: str # "linear", "bell"
     center_t: Optional[float] # if using bell smooth function, 35
@@ -42,7 +71,6 @@ class SDAnchorTrainer():
     def __init__(self, config: AnchorConfig):
         self.config = config
         self.default_base_model_id = "CompVis/stable-diffusion-v1-4"
-        default_save_path = "anchor-embeds/"
         
     def prepare_context(self, pipe, config: AnchorConfig) -> Dict[str, Any]:
         with torch.no_grad():
@@ -243,7 +271,11 @@ def run_anchor_training(config: AnchorConfig) -> str:
         # Optional: Print loss every 50 steps
         if i % 50 == 0 or i == config.iterations - 1:
             tqdm.write(f"Iteration {i:04d} | Timestep: {step_result.timestep_index:03d} | Loss: {loss.item():.4f}")
-
+            
+    final_anchor_embeds = context["anchor_embeds"]
+    safe_prompt_name = "".join([c if c.isalnum() else "_" for c in config.target_prompt[:20]])
+    filename = f"anchor_{safe_prompt_name}_steps{config.iterations}.pt"
+    saved_at = save_anchor_embeddings(final_anchor_embeds, config.anchor_save_path, filename)
+    
     # 6. Return Completion Status
     return f"Success! Anchor training completed {config.iterations} iterations. Final loss: {loss.item():.4f}."
-    
