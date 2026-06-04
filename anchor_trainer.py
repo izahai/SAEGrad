@@ -36,23 +36,25 @@ def save_anchor_embeddings(anchor_embeds: torch.Tensor, save_dir: str, filename:
     
     print(f"Anchor embeddings successfully saved to: {save_path}")
     return save_path
-
+    
 @dataclass
 class AnchorConfig:
+    # --- NON-DEFAULT FIELDS (Must go first) ---
     target_prompt: str
-    guidance_scale: float # default 3
-    num_inference_steps: int # default 50
+    guidance_scale: float 
+    num_inference_steps: int 
     iterations: int
     lr: Optional[float]
     batch_size: int
-    torch_dtype: torch.dtype = torch.bfloat16
-    device: str = "cuda:0"
-    
-    anchor_save_path: str = "anchor-embeds"
     margin_hyperpara: float # distance margin
     smooth_function: str # "linear", "bell"
-    center_t: Optional[float] # if using bell smooth function, 35
+    center_t: Optional[float]  # if using bell smooth function, 35
     sigma: Optional[float] # if using bell smooth function, 5
+    
+    # --- DEFAULT FIELDS (Must go last) ---
+    torch_dtype: torch.dtype = torch.bfloat16
+    device: str = "cuda:0"
+    anchor_save_path: str = "anchor-embeds"
     
 @dataclass
 class StepResult:
