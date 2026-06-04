@@ -45,29 +45,52 @@ def load_anchor_embeddings(file_path: str, device: str):
 def normalize_anchor_embeddings(
     anchor_embeds: torch.Tensor,
     target_embeds: torch.Tensor,
+    scale_threshold: float = 0.1,
 ):
     """
-    Match anchor embedding scale to target prompt scale.
-    Helps prevent black outputs from embedding explosions.
+    Normalize anchor embeddings only when their scale differs
+    significantly from the target prompt embeddings.
+
+    Prevents step-0 anchors from being modified unnecessarily.
     """
 
-    anchor_embeds = anchor_embeds.float()
-
-    anchor_std = anchor_embeds.std()
+    anchor_std = anchor_embeds.float().std()
     target_std = target_embeds.float().std()
+
+    ratio = (anchor_std / target_std).item()
 
     print("\n=== Embedding Scale Check ===")
     print("Target std:", target_std.item())
     print("Anchor std:", anchor_std.item())
+    print("Std ratio:", ratio)
 
-    if anchor_std > 0:
-        anchor_embeds = (
-            anchor_embeds / anchor_std
-        ) * target_std
+    # If scales already match, preserve exact values
+    if abs(ratio - 1.0) < scale_threshold:
+        print("Scales already close. Skipping normalization.")
 
-    anchor_embeds = torch.clamp(anchor_embeds, -10, 10)
+        return anchor_embeds.to(
+            device=target_embeds.device,
+            dtype=target_embeds.dtype,
+        )
 
-    return anchor_embeds.to(target_embeds.dtype)
+    print("Applying normalization...")
+
+    anchor_embeds = anchor_embeds.float()
+
+    anchor_embeds = (
+        anchor_embeds / anchor_std
+    ) * target_std
+
+    anchor_embeds = torch.clamp(
+        anchor_embeds,
+        -10,
+        10,
+    )
+
+    return anchor_embeds.to(
+        device=target_embeds.device,
+        dtype=target_embeds.dtype,
+    )
 
 
 def create_comparison_grid(
@@ -188,26 +211,48 @@ def run_inference(
     if anchor_embeds.shape[0] != target_embeds.shape[0]:
         anchor_embeds = anchor_embeds[:1]
 
-    # Normalize scale
-    anchor_embeds = normalize_anchor_embeddings(
-        anchor_embeds,
-        target_embeds,
+    # Ensure identical dtype/device
+    anchor_embeds = anchor_embeds.to(
+        device=target_embeds.device,
+        dtype=target_embeds.dtype,
     )
 
-    print(
-        "Target shape:",
-        target_embeds.shape,
-    )
+    print("\n=== Target vs Anchor Comparison ===")
 
-    print(
-        "Anchor shape:",
-        anchor_embeds.shape,
-    )
+    max_diff = (
+        target_embeds.float()
+        - anchor_embeds.float()
+    ).abs().max().item()
 
-    print(
-        "Negative shape:",
-        negative_embeds.shape,
-    )
+    mean_diff = (
+        target_embeds.float()
+        - anchor_embeds.float()
+    ).abs().mean().item()
+
+    print("Max diff :", max_diff)
+    print("Mean diff:", mean_diff)
+
+    # If embeddings are effectively identical,
+    # use target embeddings directly.
+    if max_diff < 1e-6:
+
+        print(
+            "Anchor matches target. "
+            "Using target embeddings directly."
+        )
+
+        anchor_embeds = target_embeds.clone()
+
+    else:
+
+        anchor_embeds = normalize_anchor_embeddings(
+            anchor_embeds,
+            target_embeds,
+        )
+
+    print("Target shape:", target_embeds.shape)
+    print("Anchor shape:", anchor_embeds.shape)
+    print("Negative shape:", negative_embeds.shape)
 
     if seeds is None or len(seeds) == 0:
         seeds = [42]
@@ -318,18 +363,14 @@ if __name__ == "__main__":
 
     TARGET_PROMPT = "Shiba Inu"
 
-    USER_SEEDS = [
-        42,
-        2026,
-        999,
-    ]
+    USER_SEEDS = [42,20,23,41]
 
     run_inference(
         anchor_embed_path=ANCHOR_PATH,
         target_prompt=TARGET_PROMPT,
         output_dir="anchor_vs_target_results",
         seeds=USER_SEEDS,
-        num_images_per_seed=2,
+        num_images_per_seed=1,
         guidance_scale=3.0,
         num_inference_steps=50,
         device="cuda:0",

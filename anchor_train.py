@@ -17,8 +17,8 @@ def main():
     parser.add_argument("--target_prompt", type=str, default="Golden Retriever", help="The text prompt you want to anchor.")
     
     # Training Hyperparameters
-    parser.add_argument("--iterations", type=int, default=500, help="Number of optimization iterations.")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for the Adam optimizer.")
+    parser.add_argument("--iterations", type=int, default=100, help="Number of optimization iterations.")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for the Adam optimizer.")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for generating embeddings.")
     
     # SD Inference Settings
@@ -26,10 +26,10 @@ def main():
     parser.add_argument("--num_inference_steps", type=int, default=50, help="Total inference steps for the scheduler.")
     
     # Loss & Smoothing Configuration
-    parser.add_argument("--margin_hyperpara", type=float, default=0.1, help="Distance margin hyperparameter for small timesteps.")
+    parser.add_argument("--margin_hyperpara", type=float, default=1.0, help="Distance margin hyperparameter for small timesteps.")
     parser.add_argument("--smooth_function", type=str, choices=["linear", "bell"], default="linear", help="Smoothing function to use for loss weighting.")
-    parser.add_argument("--center_t", type=float, default=35.0, help="Center t parameter (mu) if using the 'bell' smooth function.")
-    parser.add_argument("--sigma", type=float, default=5.0, help="Sigma parameter if using the 'bell' smooth function.")
+    parser.add_argument("--center_t", type=float, default=30.0, help="Center t parameter (mu) if using the 'bell' smooth function.")
+    parser.add_argument("--sigma", type=float, default=10.0, help="Sigma parameter if using the 'bell' smooth function.")
     
     # Hardware & File System
     parser.add_argument("--device", type=str, default="cuda:0", help="Device to use for training (e.g., 'cuda:0' or 'cpu').")
