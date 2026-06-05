@@ -326,7 +326,7 @@ def run_inference(
     print("Negative shape:", negative_embeds.shape)
 
     if seeds is None or len(seeds) == 0:
-        seeds = [42]
+        seeds = [42, 20, 23, 41]
 
     comparison_rows = []
 
