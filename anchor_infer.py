@@ -358,7 +358,7 @@ def run_inference(
 if __name__ == "__main__":
 
     ANCHOR_PATH = (
-        "anchor-embeds/anchor_Golden_Retriever_steps100.pt"
+        "anchor-embeds/anchor_Golden_Retriever_steps10.pt"
     )
 
     TARGET_PROMPT = "Golden Retriever"

@@ -247,7 +247,8 @@ def run_anchor_training(config: AnchorConfig) -> str:
 
     for i in tqdm(range(config.iterations), desc="Optimizing Anchor Embeds"):
         # 1. Sample a target timestep index + seed for this iteration
-        run_till_timestep = random.randint(0, config.train_timestep_index - 1)
+        # run_till_timestep = random.randint(0, config.train_timestep_index - 1)
+        run_till_timestep = config.train_timestep_index - 1
         seed = random.randint(0, 2 ** 15)
 
         # 2. Roll out and cache the trajectory (no grad, no CFG, target prompt only)

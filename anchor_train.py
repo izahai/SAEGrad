@@ -17,8 +17,8 @@ def main():
     parser.add_argument("--target_prompt", type=str, default="Golden Retriever", help="The text prompt you want to anchor.")
     
     # Training Hyperparameters
-    parser.add_argument("--iterations", type=int, default=10, help="Number of optimization iterations.")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for the Adam optimizer.")
+    parser.add_argument("--iterations", type=int, default=100, help="Number of optimization iterations.")
+    parser.add_argument("--lr", type=float, default=1e-2, help="Learning rate for the Adam optimizer.")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for generating embeddings.")
     parser.add_argument("--margin_hyperpara", type=float, default=1.0, help="Distance margin hyperparameter for small timesteps.")
     
