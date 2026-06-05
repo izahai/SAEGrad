@@ -1,6 +1,8 @@
 import os
 import torch
 
+from anchor_train.config import AnchorConfig
+
 def save_anchor_embeddings(context: dict, config: AnchorConfig) -> str:
     """
     Extracts, detaches, and saves the trained anchor embeddings tensor 
