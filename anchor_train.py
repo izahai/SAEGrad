@@ -17,7 +17,7 @@ def main():
     parser.add_argument("--target_prompt", type=str, default="Golden Retriever", help="The text prompt you want to anchor.")
     
     # Training Hyperparameters
-    parser.add_argument("--iterations", type=int, default=100, help="Number of optimization iterations.")
+    parser.add_argument("--iterations", type=int, default=101, help="Number of optimization iterations.")
     parser.add_argument("--lr", type=float, default=1e-2, help="Learning rate for the Adam optimizer.")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for generating embeddings.")
     parser.add_argument("--margin_hyperpara", type=float, default=1.0, help="Distance margin hyperparameter for small timesteps.")
@@ -25,10 +25,9 @@ def main():
     # SD Inference Settings
     parser.add_argument("--guidance_scale", type=float, default=1.0, help="Classifier-free guidance scale.")
     parser.add_argument("--num_inference_steps", type=int, default=50, help="Total inference steps for the scheduler.")
-    parser.add_argument("--train_till_timestep", type=int, default=25, help="Total train steps for the training.")
+    parser.add_argument("--train_till_timestep", type=int, default=5, help="Total train steps for the training.")
     
     # Loss & Smoothing Configuration
-    # Added "sigmoid" to choices
     parser.add_argument("--smooth_function", type=str, choices=["linear", "bell", "sigmoid", "simple"], default="simple", help="Smoothing function to use for loss weighting.")
     
     # Gaussian (Bell) Specific Hyperparameters

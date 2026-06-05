@@ -19,7 +19,6 @@ def save_anchor_embeddings(anchor_embeds: torch.Tensor, save_dir: str, filename:
     print(f"Anchor embeddings successfully saved to: {save_path}")
     return save_path
 
-
 @dataclass
 class AnchorConfig:
     # --- NON-DEFAULT FIELDS (Must go first) ---
