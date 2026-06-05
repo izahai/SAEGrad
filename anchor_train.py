@@ -25,7 +25,7 @@ def main():
     # SD Inference Settings
     parser.add_argument("--guidance_scale", type=float, default=3.0, help="Classifier-free guidance scale.")
     parser.add_argument("--num_inference_steps", type=int, default=50, help="Total inference steps for the scheduler.")
-    parser.add_argument("--train_timestep_index", type=int, default=25, help="Total train steps for the training.")
+    parser.add_argument("--train_timestep_index", type=int, default=10, help="Total train steps for the training.")
     
     # Loss & Smoothing Configuration
     # Added "sigmoid" to choices
@@ -50,6 +50,7 @@ def main():
     print(f"Iterations:      {args.iterations}")
     print(f"Learning Rate:   {args.lr}")
     print(f"Smooth Function: {args.smooth_function}")
+    print(f"Train till time step: {args.train_timestep_index}")
     print(f"Device:          {args.device}")
     print("===============================================")
 
