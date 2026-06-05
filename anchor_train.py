@@ -5,9 +5,10 @@ import sys
 # Import the config and training function from your training script
 # Assuming the file provided previously is saved as "anchor_trainer.py"
 try:
-    from anchor_trainer import AnchorConfig, run_anchor_training
+    from anchor_train.config import AnchorConfig
+    from anchor_train.train import run_anchor_step_training, run_anchor_trajectory_training
 except ImportError:
-    print("Error: Could not import anchor_trainer. Make sure your training script is named 'anchor_trainer.py' and is in the same directory.")
+    print("Error: Could not import anchor_train. Run this from the repository root or add the repository root to PYTHONPATH.")
     sys.exit(1)
 
 def main():
@@ -15,28 +16,18 @@ def main():
     
     # Text Input
     parser.add_argument("--target_prompt", type=str, default="Golden Retriever", help="The text prompt you want to anchor.")
+    parser.add_argument("--method", type=str, choices=["step", "trajectory"], default="step")
     
     # Training Hyperparameters
     parser.add_argument("--iterations", type=int, default=101, help="Number of optimization iterations.")
     parser.add_argument("--lr", type=float, default=1e-2, help="Learning rate for the Adam optimizer.")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for generating embeddings.")
-    parser.add_argument("--margin_hyperpara", type=float, default=1.0, help="Distance margin hyperparameter for small timesteps.")
     
     # SD Inference Settings
     parser.add_argument("--guidance_scale", type=float, default=1.0, help="Classifier-free guidance scale.")
     parser.add_argument("--num_inference_steps", type=int, default=50, help="Total inference steps for the scheduler.")
     parser.add_argument("--train_till_timestep", type=int, default=5, help="Total train steps for the training.")
-    
-    # Loss & Smoothing Configuration
-    parser.add_argument("--smooth_function", type=str, choices=["linear", "bell", "sigmoid", "simple"], default="simple", help="Smoothing function to use for loss weighting.")
-    
-    # Gaussian (Bell) Specific Hyperparameters
-    parser.add_argument("--center_t", type=float, default=30.0, help="Center t parameter (mu) if using the 'bell' smooth function.")
-    parser.add_argument("--sigma", type=float, default=10.0, help="Sigma parameter if using the 'bell' smooth function.")
-    
-    # Sigmoid Specific Hyperparameters
-    parser.add_argument("--sigmoid_mid", type=float, default=24.5, help="Midpoint of the 0-49 step range for the 'sigmoid' function.")
-    parser.add_argument("--sigmoid_k", type=float, default=0.20, help="Steepness factor for the 'sigmoid' function.")
+    parser.add_argument("--anchor_noise", type=float, default=1.0, help="Noise level for anchor embeddings.")
     
     # Hardware & File System
     parser.add_argument("--device", type=str, default="cuda:0", help="Device to use for training (e.g., 'cuda:0' or 'cpu').")
@@ -46,9 +37,10 @@ def main():
 
     print("=== Initializing Anchor Embeddings Training ===")
     print(f"Target Prompt:   '{args.target_prompt}'")
+    print(f"Guidance Scale:  {args.guidance_scale}")
+    print(f"Method:          {args.method}")
     print(f"Iterations:      {args.iterations}")
     print(f"Learning Rate:   {args.lr}")
-    print(f"Smooth Function: {args.smooth_function}")
     print(f"Train till time step: {args.train_till_timestep}")
     print(f"Device:          {args.device}")
     print("===============================================")
@@ -64,18 +56,18 @@ def main():
         torch_dtype=torch.bfloat16, 
         device=args.device,
         anchor_save_path=args.save_path,
-        margin_hyperpara=args.margin_hyperpara,
-        smooth_function=args.smooth_function,
-        center_t=args.center_t,
-        sigma=args.sigma,
-        sigmoid_mid=args.sigmoid_mid,  
-        sigmoid_k=args.sigmoid_k,
-        train_till_timestep=args.train_till_timestep
+        train_till_timestep=args.train_till_timestep,
+        anchor_noise=args.anchor_noise
     )
     
     # 2. Run the Training Loop
     try:
-        result_message = run_anchor_training(config)
+        if args.method == "step":
+            result_message = run_anchor_step_training(config)
+        elif args.method == "trajectory":
+            result_message = run_anchor_trajectory_training(config)
+        else:
+            raise ValueError(f"Unknown method: {args.method}")
         print("\n=== Training Complete ===")
         print(result_message)
     except Exception as e:
