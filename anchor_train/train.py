@@ -247,7 +247,8 @@ def run_anchor_side_training(config: AnchorConfig) -> str:
             loss_tensor = trainer.compute_dw_loss(
                 predicted_noise_target=step_result.target_noise,
                 predicted_noise_anchor=step_result.anchor_noise,
-                t=t_tensor
+                t=t_tensor,
+                m=config.dw_margin,
             )
         else:
             loss_tensor = trainer.compute_loss(

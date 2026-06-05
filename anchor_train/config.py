@@ -14,6 +14,7 @@ class AnchorConfig:
     batch_size: int
     train_till_timestep: int # k: sample target timestep index from [0, k-1]
     anchor_noise: float
+    dw_margin: float
     
     # --- DEFAULT FIELDS (Must go last) ---
     torch_dtype: torch.dtype = torch.bfloat16
