@@ -7,7 +7,7 @@ import sys
 try:
     from anchor_train.config import AnchorConfig
     from anchor_train.train import (
-    run_anchor_step_training, run_anchor_trajectory_training, run_anchor_side_training
+        run_training_pipeline
     )
 except ImportError:
     print("Error: Could not import anchor_train. Run this from the repository root or add the repository root to PYTHONPATH.")
@@ -50,6 +50,7 @@ def main():
     # 1. Instantiate the Configuration (including new sigmoid attributes)
     config = AnchorConfig(
         target_prompt=args.target_prompt,
+        method=args.method,
         guidance_scale=args.guidance_scale,
         num_inference_steps=args.num_inference_steps,
         iterations=args.iterations,
@@ -63,19 +64,7 @@ def main():
     )
     
     # 2. Run the Training Loop
-    try:
-        if args.method == "step":
-            result_message = run_anchor_step_training(config)
-        elif args.method == "trajectory":
-            result_message = run_anchor_trajectory_training(config)
-        elif args.method == "side":
-            result_message = run_anchor_side_training(config)
-        else:
-            raise ValueError(f"Unknown method: {args.method}")
-        print("\n=== Training Complete ===")
-        print(result_message)
-    except Exception as e:
-        print(f"\n[!] Training failed with error: {e}")
+    run_training_pipeline(config)
 
 if __name__ == "__main__":
     main()

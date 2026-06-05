@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 class AnchorConfig:
     # --- NON-DEFAULT FIELDS (Must go first) ---
     target_prompt: str
+    method: str 
     guidance_scale: float 
     num_inference_steps: int 
     iterations: int

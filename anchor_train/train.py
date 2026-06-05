@@ -1,5 +1,3 @@
-import os
-import matplotlib.pyplot as plt
 import torch
 import torch.optim as optim
 import random
@@ -11,6 +9,23 @@ from anchor_train.stepTrainer import SDAnchorStepTrainer
 from anchor_train.trajectoryTrainer import SDAnchorTrajectoryTrainer
 from anchor_train.config import AnchorConfig
 from anchor_train.utils import save_anchor_embeddings
+from anchor_train.vis import LossVisualizer
+
+
+def run_training_pipeline(config: AnchorConfig) -> str:
+    try:
+        if config.method == "step":
+            result_message = run_anchor_step_training(config)
+        elif config.method == "trajectory":
+            result_message = run_anchor_trajectory_training(config)
+        elif config.method == "side":
+            result_message = run_anchor_side_training(config)
+        else:
+            raise ValueError(f"Unknown method: {config.method}")
+        print("\n=== Training Complete ===")
+        print(result_message)
+    except Exception as e:
+        print(f"\n[!] Training failed with error: {e}")
 
 
 def run_anchor_step_training(config: AnchorConfig) -> str:
@@ -43,13 +58,13 @@ def run_anchor_step_training(config: AnchorConfig) -> str:
     # 4. Initialize the optimizer
     # We only pass the anchor_embeds to the optimizer since that's what we're tuning
     optimizer = optim.Adam([context["anchor_embeds"]], lr=config.lr)
+    visualizer = LossVisualizer(config)
     
     print(f"Starting anchor training for {config.iterations} iterations on {config.device}...")
     
     # 5. The Training Loop
     # We leave the models in eval mode since they are frozen, though the gradients 
     # will flow back to the anchor_embeds leaf tensor.
-    loss_history = []
     for i in tqdm(range(config.iterations), desc="Optimizing Anchor Embeds"):
         optimizer.zero_grad()
         
@@ -76,37 +91,16 @@ def run_anchor_step_training(config: AnchorConfig) -> str:
         optimizer.step()
 
         # Record the loss for later export and visualization
-        loss_history.append(loss.item())
+        visualizer.record(loss.item())
         
         # Optional: Print loss every 50 steps
         if i % 50 == 0 or i == config.iterations - 1:
             tqdm.write(f"Iteration {i:04d} | Timestep: {step_result.timestep_index:03d} | Loss: {loss.item():.4f}")
 
-    vis_dir = "visualization"
-    os.makedirs(vis_dir, exist_ok=True)
-    safe_prompt_name = "".join([c if c.isalnum() else "_" for c in config.target_prompt[:20]])
+    visualizer.save_data()
+    visualizer.save_plot()
 
-    loss_save_path = os.path.join(vis_dir, f"loss_values_{safe_prompt_name}_steps{config.iterations}.pt")
-    torch.save({"loss_history": loss_history}, loss_save_path)
-    print(f"Loss values successfully saved to: {loss_save_path}")
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(loss_history, color="royalblue", alpha=0.8, label="Loss")
-    plt.title(f"Anchor Optimization Loss Curve\nPrompt: '{config.target_prompt[:40]}...'")
-    plt.xlabel("Iteration")
-    plt.ylabel("Loss")
-    plt.grid(True, linestyle="--", alpha=0.5)
-    plt.legend()
-
-    plot_path = os.path.join(vis_dir, f"loss_curve_{safe_prompt_name}_steps{config.iterations}.png")
-    plt.savefig(plot_path, bbox_inches="tight", dpi=150)
-    plt.close()
-    print(f"Loss visualization plot saved completely to: {plot_path}")
-
-    final_anchor_embeds = context["anchor_embeds"]
-    safe_prompt_name = "".join([c if c.isalnum() else "_" for c in config.target_prompt[:20]])
-    filename = f"anchor_{safe_prompt_name}_steps{config.iterations}.pt"
-    saved_at = save_anchor_embeddings(final_anchor_embeds, config.anchor_save_path, filename)
+    save_anchor_embeddings(context, config)
     
     # 6. Return Completion Status
     return f"Success! Anchor training completed {config.iterations} iterations. Final loss: {loss.item():.4f}."
@@ -127,11 +121,10 @@ def run_anchor_trajectory_training(config: AnchorConfig) -> str:
 
     context = trainer.prepare_context(pipe, config)
     optimizer = optim.Adam([context["anchor_embeds"]], lr=config.lr)
+    visualizer = LossVisualizer(config)
 
     print(f"Starting anchor training for {config.iterations} iterations on {config.device}...")
 
-    # Array to track absolutely every loss calculated per backprop step
-    all_backprop_losses = []
     last_loss = 0.0
 
     for i in tqdm(range(config.iterations), desc="Optimizing Anchor Embeds"):
@@ -175,7 +168,7 @@ def run_anchor_trajectory_training(config: AnchorConfig) -> str:
             
             # Record individual step loss
             loss_val = loss.item()
-            all_backprop_losses.append(loss_val)
+            visualizer.record(loss_val)
             iter_loss += loss_val
 
         # 4. Clear the cache before the next iteration
@@ -192,29 +185,11 @@ def run_anchor_trajectory_training(config: AnchorConfig) -> str:
             )
 
     # 5. Generate and save the loss curve chart
-    vis_dir = "visualization"
-    os.makedirs(vis_dir, exist_ok=True)
-    
-    safe_prompt_name = "".join([c if c.isalnum() else "_" for c in config.target_prompt[:20]])
-    
-    plt.figure(figsize=(10, 5))
-    plt.plot(all_backprop_losses, color='royalblue', alpha=0.7, label='Per-step Loss')
-    plt.title(f"Anchor Optimization Loss Curve\nPrompt: '{config.target_prompt[:40]}...'")
-    plt.xlabel("Global Backprop Steps (Every Pair)")
-    plt.ylabel("Loss")
-    plt.grid(True, linestyle='--', alpha=0.5)
-    plt.legend()
-    
-    plot_filename = f"loss_curve_{safe_prompt_name}_steps{config.iterations}.png"
-    plot_path = os.path.join(vis_dir, plot_filename)
-    plt.savefig(plot_path, bbox_inches='tight', dpi=150)
-    plt.close()
-    print(f"Loss visualization plot saved completely to: {plot_path}")
+    visualizer.save_data()
+    visualizer.save_plot()
 
     # 6. Save final optimized weights
-    final_anchor_embeds = context["anchor_embeds"]
-    filename = f"anchor_{safe_prompt_name}_steps{config.iterations}.pt"
-    save_anchor_embeddings(final_anchor_embeds, config.anchor_save_path, filename)
+    save_anchor_embeddings(context, config)
 
     return f"Success! Anchor training completed {config.iterations} iterations. Final avg loss: {last_loss:.4f}."
 
@@ -249,12 +224,13 @@ def run_anchor_side_training(config: AnchorConfig) -> str:
     # We only pass the anchor_embeds to the optimizer since that's what we're tuning
     optimizer = optim.Adam([context["anchor_embeds"]], lr=config.lr)
     
+    visualizer = LossVisualizer(config)
+    
     print(f"Starting anchor training for {config.iterations} iterations on {config.device}...")
     
     # 5. The Training Loop
     # We leave the models in eval mode since they are frozen, though the gradients 
     # will flow back to the anchor_embeds leaf tensor.
-    loss_history = []
     for i in tqdm(range(config.iterations), desc="Optimizing Anchor Embeds"):
         optimizer.zero_grad()
         
@@ -282,37 +258,17 @@ def run_anchor_side_training(config: AnchorConfig) -> str:
         optimizer.step()
 
         # Record the loss for later export and visualization
-        loss_history.append(loss.item())
+        visualizer.record(loss.item())
         
         # Optional: Print loss every 50 steps
         if i % 50 == 0 or i == config.iterations - 1:
             tqdm.write(f"Iteration {i:04d} | Timestep: {step_result.timestep_index:03d} | Loss: {loss.item():.4f}")
 
-    vis_dir = "visualization"
-    os.makedirs(vis_dir, exist_ok=True)
-    safe_prompt_name = "".join([c if c.isalnum() else "_" for c in config.target_prompt[:20]])
-
-    loss_save_path = os.path.join(vis_dir, f"loss_values_{safe_prompt_name}_steps{config.iterations}.pt")
-    torch.save({"loss_history": loss_history}, loss_save_path)
-    print(f"Loss values successfully saved to: {loss_save_path}")
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(loss_history, color="royalblue", alpha=0.8, label="Loss")
-    plt.title(f"Anchor Optimization Loss Curve\nPrompt: '{config.target_prompt[:40]}...'")
-    plt.xlabel("Iteration")
-    plt.ylabel("Loss")
-    plt.grid(True, linestyle="--", alpha=0.5)
-    plt.legend()
-
-    plot_path = os.path.join(vis_dir, f"loss_curve_{safe_prompt_name}_steps{config.iterations}.png")
-    plt.savefig(plot_path, bbox_inches="tight", dpi=150)
-    plt.close()
-    print(f"Loss visualization plot saved completely to: {plot_path}")
-
-    final_anchor_embeds = context["anchor_embeds"]
-    safe_prompt_name = "".join([c if c.isalnum() else "_" for c in config.target_prompt[:20]])
-    filename = f"anchor_{safe_prompt_name}_steps{config.iterations}.pt"
-    saved_at = save_anchor_embeddings(final_anchor_embeds, config.anchor_save_path, filename)
+    visualizer.save_data()
+    visualizer.save_plot()
+    
+    # Save final optimized weights
+    saved_at = save_anchor_embeddings(context, config)
     
     # 6. Return Completion Status
     return f"Success! Anchor training completed {config.iterations} iterations. Final loss: {loss.item():.4f}."
