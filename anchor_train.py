@@ -5,7 +5,7 @@ import sys
 # Import the config and training function from your training script
 # Assuming the file provided previously is saved as "anchor_trainer.py"
 try:
-    from anchor_trainer import AnchorConfig, run_anchor_training
+    from train_v2.anchor_trainer import AnchorConfig, run_anchor_training
 except ImportError:
     print("Error: Could not import anchor_trainer. Make sure your training script is named 'anchor_trainer.py' and is in the same directory.")
     sys.exit(1)
@@ -25,6 +25,7 @@ def main():
     # SD Inference Settings
     parser.add_argument("--guidance_scale", type=float, default=3.0, help="Classifier-free guidance scale.")
     parser.add_argument("--num_inference_steps", type=int, default=50, help="Total inference steps for the scheduler.")
+    parser.add_argument("--train_timestep_index", type=int, default=25, help="Total train steps for the training.")
     
     # Loss & Smoothing Configuration
     # Added "sigmoid" to choices
