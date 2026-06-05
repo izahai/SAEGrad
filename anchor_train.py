@@ -50,7 +50,7 @@ def main():
     print(f"Iterations:      {args.iterations}")
     print(f"Learning Rate:   {args.lr}")
     print(f"Smooth Function: {args.smooth_function}")
-    print(f"Train till time step: {args.train_timestep_index}")
+    print(f"Train till time step: {args.train_till_timestep}")
     print(f"Device:          {args.device}")
     print("===============================================")
 
