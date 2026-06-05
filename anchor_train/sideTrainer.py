@@ -132,7 +132,7 @@ class SDAnchorSideTrainer():
         predicted_noise_target: torch.Tensor, # BCWH
         predicted_noise_anchor: torch.Tensor, # BCWH
         t: torch.Tensor,                      # B
-        m: float = 1e-5                       # Your constant target loss value
+        m: float = 1e-4                       # Your constant target loss value
     ) -> torch.Tensor:
 
         # 1. Compute the standard MSE distance per batch element -> shape (B,)
