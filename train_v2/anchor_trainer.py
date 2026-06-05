@@ -35,9 +35,9 @@ class AnchorConfig:
     sigma: Optional[float]           # if using bell smooth function, 5
     sigmoid_k: Optional[float]       # if using sigmoid smooth function, 0.4
     sigmoid_mid: Optional[float]     # if using sigmoid smooth function, 24.5
+    train_till_timestep: int # k: sample target timestep index from [0, k-1]
 
     # --- DEFAULT FIELDS (Must go last) ---
-    train_till_timestep: int = 10     # k: sample target timestep index from [0, k-1]
     torch_dtype: torch.dtype = torch.bfloat16
     device: str = "cuda:0"
     anchor_save_path: str = "anchor-embeds"

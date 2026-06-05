@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Iterator, Mapping, Optional
 from tqdm import tqdm
 import torch.optim as optim
+import matplotlib.pyplot as plt
 
 from diffusers import StableDiffusionPipeline
 
@@ -52,6 +53,7 @@ class AnchorConfig:
     sigma: Optional[float] # if using bell smooth function, 5
     sigmoid_k: Optional[float] # if using sigmoid smooth function, 0.4
     sigmoid_mid: Optional[float] # if using sigmoid smooth function, 24.5
+    train_till_timestep: int # k: sample target timestep index from [0, k-1]
     
     # --- DEFAULT FIELDS (Must go last) ---
     torch_dtype: torch.dtype = torch.bfloat16
@@ -122,7 +124,7 @@ class SDAnchorTrainer():
     
     def training_step(self, pipe, context: Dict[str, Any], config: AnchorConfig) -> StepResult:
         
-        run_till_timestep = random.randint(0, 25 - 1)
+        run_till_timestep = random.randint(0, config.train_till_timestep - 1)
         seed = random.randint(0, 2**15)
         
         with torch.no_grad():
@@ -243,15 +245,7 @@ class SDAnchorTrainer():
             dim=list(range(1, len(predicted_noise_target.shape))) # dim=[1,2,3]
         ) # (B,)
         
-        # mse
-        mse = beta * mse_distance
-        
-        # (D - mse)
-        # D_mse = alpha * (self.config.margin_hyperpara - mse_distance)
-        
-        total_loss = mse #+ D_mse
-        
-        return total_loss
+        return mse_distance
     
     
 def run_anchor_training(config: AnchorConfig) -> str:
@@ -290,6 +284,7 @@ def run_anchor_training(config: AnchorConfig) -> str:
     # 5. The Training Loop
     # We leave the models in eval mode since they are frozen, though the gradients 
     # will flow back to the anchor_embeds leaf tensor.
+    loss_history = []
     for i in tqdm(range(config.iterations), desc="Optimizing Anchor Embeds"):
         optimizer.zero_grad()
         
@@ -314,11 +309,35 @@ def run_anchor_training(config: AnchorConfig) -> str:
         
         # Update embeddings
         optimizer.step()
+
+        # Record the loss for later export and visualization
+        loss_history.append(loss.item())
         
         # Optional: Print loss every 50 steps
         if i % 50 == 0 or i == config.iterations - 1:
             tqdm.write(f"Iteration {i:04d} | Timestep: {step_result.timestep_index:03d} | Loss: {loss.item():.4f}")
-            
+
+    vis_dir = "visualization"
+    os.makedirs(vis_dir, exist_ok=True)
+    safe_prompt_name = "".join([c if c.isalnum() else "_" for c in config.target_prompt[:20]])
+
+    loss_save_path = os.path.join(vis_dir, f"loss_values_{safe_prompt_name}_steps{config.iterations}.pt")
+    torch.save({"loss_history": loss_history}, loss_save_path)
+    print(f"Loss values successfully saved to: {loss_save_path}")
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(loss_history, color="royalblue", alpha=0.8, label="Loss")
+    plt.title(f"Anchor Optimization Loss Curve\nPrompt: '{config.target_prompt[:40]}...'")
+    plt.xlabel("Iteration")
+    plt.ylabel("Loss")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend()
+
+    plot_path = os.path.join(vis_dir, f"loss_curve_{safe_prompt_name}_steps{config.iterations}.png")
+    plt.savefig(plot_path, bbox_inches="tight", dpi=150)
+    plt.close()
+    print(f"Loss visualization plot saved completely to: {plot_path}")
+
     final_anchor_embeds = context["anchor_embeds"]
     safe_prompt_name = "".join([c if c.isalnum() else "_" for c in config.target_prompt[:20]])
     filename = f"anchor_{safe_prompt_name}_steps{config.iterations}.pt"
