@@ -25,7 +25,7 @@ def main():
     # SD Inference Settings
     parser.add_argument("--guidance_scale", type=float, default=3.0, help="Classifier-free guidance scale.")
     parser.add_argument("--num_inference_steps", type=int, default=50, help="Total inference steps for the scheduler.")
-    parser.add_argument("--train_timestep_index", type=int, default=10, help="Total train steps for the training.")
+    parser.add_argument("--train_till_timestep", type=int, default=10, help="Total train steps for the training.")
     
     # Loss & Smoothing Configuration
     # Added "sigmoid" to choices
@@ -70,7 +70,8 @@ def main():
         center_t=args.center_t,
         sigma=args.sigma,
         sigmoid_mid=args.sigmoid_mid,  
-        sigmoid_k=args.sigmoid_k      
+        sigmoid_k=args.sigmoid_k,
+        train_till_timestep=args.train_till_timestep
     )
     
     # 2. Run the Training Loop

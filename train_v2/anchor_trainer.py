@@ -37,7 +37,7 @@ class AnchorConfig:
     sigmoid_mid: Optional[float]     # if using sigmoid smooth function, 24.5
 
     # --- DEFAULT FIELDS (Must go last) ---
-    train_timestep_index: int = 25     # k: sample target timestep index from [0, k-1]
+    train_till_timestep: int = 10     # k: sample target timestep index from [0, k-1]
     torch_dtype: torch.dtype = torch.bfloat16
     device: str = "cuda:0"
     anchor_save_path: str = "anchor-embeds"
@@ -247,8 +247,8 @@ def run_anchor_training(config: AnchorConfig) -> str:
 
     for i in tqdm(range(config.iterations), desc="Optimizing Anchor Embeds"):
         # 1. Sample a target timestep index + seed for this iteration
-        # run_till_timestep = random.randint(0, config.train_timestep_index - 1)
-        run_till_timestep = config.train_timestep_index - 1
+        # run_till_timestep = random.randint(0, config.train_till_timestep - 1)
+        run_till_timestep = config.train_till_timestep - 1
         seed = random.randint(0, 2 ** 15)
 
         # 2. Roll out and cache the trajectory (no grad, no CFG, target prompt only)
