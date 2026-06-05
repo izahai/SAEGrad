@@ -1,9 +1,76 @@
+import argparse
 import os
 from typing import List, Optional
 
 import torch
-from PIL import Image, ImageDraw
-from diffusers import StableDiffusionPipeline
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="anchor_infer.py",
+        description="Compare target prompt generations against anchor embeddings.",
+    )
+    parser.add_argument(
+        "--anchor_embed_path",
+        type=str,
+        default="anchor-embeds/anchor_Golden_Retriever_steps10.pt",
+        help="Path to the saved anchor embedding checkpoint.",
+    )
+    parser.add_argument(
+        "--target_prompt",
+        type=str,
+        default="Golden Retriever",
+        help="Prompt to compare against the anchor embeddings.",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="anchor_vs_target_results",
+        help="Directory where generated images will be saved.",
+    )
+    parser.add_argument(
+        "--seeds",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Explicit list of seeds, e.g. --seeds 42 20 23 41.",
+    )
+    parser.add_argument(
+        "--num_images_per_seed",
+        type=int,
+        default=1,
+        help="Number of images to generate per seed.",
+    )
+    parser.add_argument(
+        "--guidance_scale",
+        type=float,
+        default=3.0,
+        help="Classifier-free guidance scale.",
+    )
+    parser.add_argument(
+        "--num_inference_steps",
+        type=int,
+        default=50,
+        help="Number of denoising steps.",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda:0" if torch.cuda.is_available() else "cpu",
+        help="Device used for inference.",
+    )
+    parser.add_argument(
+        "--save_individual_images",
+        action="store_true",
+        help="Save each target/anchor image pair separately.",
+    )
+    return parser
+
+
+def resolve_seeds(args: argparse.Namespace) -> list[int]:
+    if args.seeds:
+        return args.seeds
+    return [42]
 
 
 def load_anchor_embeddings(file_path: str, device: str):
@@ -101,6 +168,8 @@ def create_comparison_grid(
     Create one large image containing all comparisons.
     """
 
+    from PIL import Image, ImageDraw
+
     if len(comparison_rows) == 0:
         print("No images to save.")
         return
@@ -166,6 +235,8 @@ def run_inference(
     device: str = "cuda",
     save_individual_images: bool = False,
 ):
+
+    from diffusers import StableDiffusionPipeline
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -356,23 +427,16 @@ def run_inference(
 
 
 if __name__ == "__main__":
-
-    ANCHOR_PATH = (
-        "anchor-embeds/anchor_Golden_Retriever_steps10.pt"
-    )
-
-    TARGET_PROMPT = "Golden Retriever"
-
-    USER_SEEDS = [42,20,23,41]
+    args = build_parser().parse_args()
 
     run_inference(
-        anchor_embed_path=ANCHOR_PATH,
-        target_prompt=TARGET_PROMPT,
-        output_dir="anchor_vs_target_results",
-        seeds=USER_SEEDS,
-        num_images_per_seed=1,
-        guidance_scale=3.0,
-        num_inference_steps=50,
-        device="cuda:0",
-        save_individual_images=False,
+        anchor_embed_path=args.anchor_embed_path,
+        target_prompt=args.target_prompt,
+        output_dir=args.output_dir,
+        seeds=resolve_seeds(args),
+        num_images_per_seed=args.num_images_per_seed,
+        guidance_scale=args.guidance_scale,
+        num_inference_steps=args.num_inference_steps,
+        device=args.device,
+        save_individual_images=args.save_individual_images,
     )
