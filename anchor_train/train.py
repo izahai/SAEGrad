@@ -217,3 +217,102 @@ def run_anchor_trajectory_training(config: AnchorConfig) -> str:
     save_anchor_embeddings(final_anchor_embeds, config.anchor_save_path, filename)
 
     return f"Success! Anchor training completed {config.iterations} iterations. Final avg loss: {last_loss:.4f}."
+
+def run_anchor_side_training(config: AnchorConfig) -> str:
+    """
+    Executes the anchor embedding optimization loop.
+    
+    Args:
+        config (AnchorConfig): The configuration for the training run.
+        
+    Returns:
+        str: A status message indicating completion and final loss.
+    """
+    trainer = SDAnchorStepTrainer(config)
+        
+    # 2. Load the pipeline
+    print(f"Loading Stable Diffusion pipeline: {trainer.default_base_model_id}...")
+    pipe = StableDiffusionPipeline.from_pretrained(
+        trainer.default_base_model_id,
+        torch_dtype=config.torch_dtype
+    ).to(config.device)
+    
+    # Freeze the pipeline parameters since we are only optimizing the anchor embeddings
+    pipe.vae.requires_grad_(False)
+    pipe.text_encoder.requires_grad_(False)
+    pipe.unet.requires_grad_(False)
+    
+    # 3. Prepare the embeddings context
+    context = trainer.prepare_context(pipe, config)
+    
+    # 4. Initialize the optimizer
+    # We only pass the anchor_embeds to the optimizer since that's what we're tuning
+    optimizer = optim.Adam([context["anchor_embeds"]], lr=config.lr)
+    
+    print(f"Starting anchor training for {config.iterations} iterations on {config.device}...")
+    
+    # 5. The Training Loop
+    # We leave the models in eval mode since they are frozen, though the gradients 
+    # will flow back to the anchor_embeds leaf tensor.
+    loss_history = []
+    for i in tqdm(range(config.iterations), desc="Optimizing Anchor Embeds"):
+        optimizer.zero_grad()
+        
+        # Forward pass / get step result
+        is_even = i % 2 == 0
+        step_result = trainer.training_step(pipe, context, config, is_even)
+        
+        # Format the timestep index as a batched tensor for compute_loss
+        t_tensor = torch.tensor([step_result.timestep_index], device=config.device)
+        
+        # Compute loss
+        loss_tensor = trainer.compute_loss(
+            predicted_noise_target=step_result.target_noise,
+            predicted_noise_anchor=step_result.anchor_noise,
+            t=t_tensor
+        )
+        
+        # Aggregate loss across the batch (assuming batch size of 1, mean is safe)
+        loss = loss_tensor.mean()
+        
+        # Backpropagation
+        loss.backward()
+        
+        # Update embeddings
+        optimizer.step()
+
+        # Record the loss for later export and visualization
+        loss_history.append(loss.item())
+        
+        # Optional: Print loss every 50 steps
+        if i % 50 == 0 or i == config.iterations - 1:
+            tqdm.write(f"Iteration {i:04d} | Timestep: {step_result.timestep_index:03d} | Loss: {loss.item():.4f}")
+
+    vis_dir = "visualization"
+    os.makedirs(vis_dir, exist_ok=True)
+    safe_prompt_name = "".join([c if c.isalnum() else "_" for c in config.target_prompt[:20]])
+
+    loss_save_path = os.path.join(vis_dir, f"loss_values_{safe_prompt_name}_steps{config.iterations}.pt")
+    torch.save({"loss_history": loss_history}, loss_save_path)
+    print(f"Loss values successfully saved to: {loss_save_path}")
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(loss_history, color="royalblue", alpha=0.8, label="Loss")
+    plt.title(f"Anchor Optimization Loss Curve\nPrompt: '{config.target_prompt[:40]}...'")
+    plt.xlabel("Iteration")
+    plt.ylabel("Loss")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend()
+
+    plot_path = os.path.join(vis_dir, f"loss_curve_{safe_prompt_name}_steps{config.iterations}.png")
+    plt.savefig(plot_path, bbox_inches="tight", dpi=150)
+    plt.close()
+    print(f"Loss visualization plot saved completely to: {plot_path}")
+
+    final_anchor_embeds = context["anchor_embeds"]
+    safe_prompt_name = "".join([c if c.isalnum() else "_" for c in config.target_prompt[:20]])
+    filename = f"anchor_{safe_prompt_name}_steps{config.iterations}.pt"
+    saved_at = save_anchor_embeddings(final_anchor_embeds, config.anchor_save_path, filename)
+    
+    # 6. Return Completion Status
+    return f"Success! Anchor training completed {config.iterations} iterations. Final loss: {loss.item():.4f}."

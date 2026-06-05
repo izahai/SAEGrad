@@ -6,7 +6,9 @@ import sys
 # Assuming the file provided previously is saved as "anchor_trainer.py"
 try:
     from anchor_train.config import AnchorConfig
-    from anchor_train.train import run_anchor_step_training, run_anchor_trajectory_training
+    from anchor_train.train import (
+    run_anchor_step_training, run_anchor_trajectory_training, run_anchor_side_training
+    )
 except ImportError:
     print("Error: Could not import anchor_train. Run this from the repository root or add the repository root to PYTHONPATH.")
     sys.exit(1)
@@ -16,7 +18,7 @@ def main():
     
     # Text Input
     parser.add_argument("--target_prompt", type=str, default="Golden Retriever", help="The text prompt you want to anchor.")
-    parser.add_argument("--method", type=str, choices=["step", "trajectory"], default="step")
+    parser.add_argument("--method", type=str, choices=["step", "trajectory", "side"], default="step")
     
     # Training Hyperparameters
     parser.add_argument("--iterations", type=int, default=101, help="Number of optimization iterations.")
@@ -66,6 +68,8 @@ def main():
             result_message = run_anchor_step_training(config)
         elif args.method == "trajectory":
             result_message = run_anchor_trajectory_training(config)
+        elif args.method == "side":
+            result_message = run_anchor_side_training(config)
         else:
             raise ValueError(f"Unknown method: {args.method}")
         print("\n=== Training Complete ===")
