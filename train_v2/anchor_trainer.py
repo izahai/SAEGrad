@@ -222,7 +222,7 @@ class SDAnchorTrainer:
 
 
 def run_anchor_training(config: AnchorConfig) -> str:
-    """Executes the trajectory-cached anchor embedding optimization loop."""
+    """Executes the trajectory-cached anchor embedding optimization loop with immediate online updates."""
     trainer = SDAnchorTrainer(config)
 
     print(f"Loading Stable Diffusion pipeline: {trainer.default_base_model_id}...")
@@ -243,7 +243,7 @@ def run_anchor_training(config: AnchorConfig) -> str:
     last_loss = 0.0
     for i in tqdm(range(config.iterations), desc="Optimizing Anchor Embeds"):
         # 1. Sample a target timestep index + seed for this iteration
-        run_till_timestep = random.randint(0, config.train_timestep_index - 1)
+        run_till_timestep = random.randint(0, config.max_timestep_index - 1)
         seed = random.randint(0, 2 ** 15)
 
         # 2. Roll out and cache the trajectory (no grad, no CFG, target prompt only)
@@ -251,12 +251,13 @@ def run_anchor_training(config: AnchorConfig) -> str:
             pipe, context, config, run_till_timestep, seed
         )
 
-        optimizer.zero_grad()
         num_pairs = len(trajectory)
         iter_loss = 0.0
 
-        # 3. Replay each cached pair with the trainable anchor prompt; backprop immediately
+        # 3. Replay each cached pair, backprop, and step immediately (online update)
         for step in trajectory:
+            optimizer.zero_grad()  # Clear gradients for the current pair
+
             noise_pred_anchor = pipe.unet(
                 step.latent_model_input,           # cached x_t (same input used for target)
                 step.timestep,
@@ -274,23 +275,23 @@ def run_anchor_training(config: AnchorConfig) -> str:
                 t=t_tensor,
             ).mean()
 
-            # Average over the trajectory so grad magnitude is independent of its
-            # length, and backprop now to free this pair's graph.
-            (loss / num_pairs).backward()
+            # Backprop the raw loss and update the weights immediately
+            loss.backward()
+            optimizer.step()
+            
             iter_loss += loss.item()
 
-        # 4. Single optimizer update from the accumulated gradients
-        optimizer.step()
-
-        # 5. Clear the cache before the next iteration
+        # 4. Clear the cache before the next iteration
         trajectory.clear()
         del trajectory
 
-        last_loss = iter_loss / num_pairs
+        # Calculate average loss across the trajectory for logging purposes
+        last_loss = iter_loss / num_pairs if num_pairs > 0 else 0.0
+        
         if i % 50 == 0 or i == config.iterations - 1:
             tqdm.write(
                 f"Iteration {i:04d} | t_idx: {run_till_timestep:03d} "
-                f"| pairs: {num_pairs:02d} | Loss: {last_loss:.4f}"
+                f"| pairs: {num_pairs:02d} | Avg Trajectory Loss: {last_loss:.4f}"
             )
 
     final_anchor_embeds = context["anchor_embeds"]
@@ -298,4 +299,4 @@ def run_anchor_training(config: AnchorConfig) -> str:
     filename = f"anchor_{safe_prompt_name}_steps{config.iterations}.pt"
     save_anchor_embeddings(final_anchor_embeds, config.anchor_save_path, filename)
 
-    return f"Success! Anchor training completed {config.iterations} iterations. Final loss: {last_loss:.4f}."
+    return f"Success! Anchor training completed {config.iterations} iterations. Final avg loss: {last_loss:.4f}."
