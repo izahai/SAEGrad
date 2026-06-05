@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from tqdm import tqdm
 import torch.optim as optim
 from diffusers import StableDiffusionPipeline
+import matplotlib.pyplot as plt
 
 # NOTE: esd_sd_call is no longer needed — we roll out the trajectory ourselves (no CFG).
 
@@ -240,10 +241,13 @@ def run_anchor_training(config: AnchorConfig) -> str:
 
     print(f"Starting anchor training for {config.iterations} iterations on {config.device}...")
 
+    # Array to track absolutely every loss calculated per backprop step
+    all_backprop_losses = []
     last_loss = 0.0
+
     for i in tqdm(range(config.iterations), desc="Optimizing Anchor Embeds"):
         # 1. Sample a target timestep index + seed for this iteration
-        run_till_timestep = random.randint(0, config.max_timestep_index - 1)
+        run_till_timestep = random.randint(0, config.train_timestep_index - 1)
         seed = random.randint(0, 2 ** 15)
 
         # 2. Roll out and cache the trajectory (no grad, no CFG, target prompt only)
@@ -279,7 +283,10 @@ def run_anchor_training(config: AnchorConfig) -> str:
             loss.backward()
             optimizer.step()
             
-            iter_loss += loss.item()
+            # Record individual step loss
+            loss_val = loss.item()
+            all_backprop_losses.append(loss_val)
+            iter_loss += loss_val
 
         # 4. Clear the cache before the next iteration
         trajectory.clear()
@@ -294,8 +301,28 @@ def run_anchor_training(config: AnchorConfig) -> str:
                 f"| pairs: {num_pairs:02d} | Avg Trajectory Loss: {last_loss:.4f}"
             )
 
-    final_anchor_embeds = context["anchor_embeds"]
+    # 5. Generate and save the loss curve chart
+    vis_dir = "visualization"
+    os.makedirs(vis_dir, exist_ok=True)
+    
     safe_prompt_name = "".join([c if c.isalnum() else "_" for c in config.target_prompt[:20]])
+    
+    plt.figure(figsize=(10, 5))
+    plt.plot(all_backprop_losses, color='royalblue', alpha=0.7, label='Per-step Loss')
+    plt.title(f"Anchor Optimization Loss Curve\nPrompt: '{config.target_prompt[:40]}...'")
+    plt.xlabel("Global Backprop Steps (Every Pair)")
+    plt.ylabel("Loss")
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.legend()
+    
+    plot_filename = f"loss_curve_{safe_prompt_name}_steps{config.iterations}.png"
+    plot_path = os.path.join(vis_dir, plot_filename)
+    plt.savefig(plot_path, bbox_inches='tight', dpi=150)
+    plt.close()
+    print(f"Loss visualization plot saved completely to: {plot_path}")
+
+    # 6. Save final optimized weights
+    final_anchor_embeds = context["anchor_embeds"]
     filename = f"anchor_{safe_prompt_name}_steps{config.iterations}.pt"
     save_anchor_embeddings(final_anchor_embeds, config.anchor_save_path, filename)
 
