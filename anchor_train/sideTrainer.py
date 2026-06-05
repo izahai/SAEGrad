@@ -60,8 +60,12 @@ class SDAnchorSideTrainer():
         
         if is_even:
             run_till_timestep = 0
+            gs = config.guidance_scale
+            target_embeds = context["target_embeds"]
         else:
             run_till_timestep = config.train_till_timestep - 1
+            gs = 0.0
+            target_embeds = context["null_embeds"]
         seed = random.randint(0, 2**15)
         
         with torch.no_grad():
@@ -71,7 +75,7 @@ class SDAnchorSideTrainer():
                 negative_prompt_embeds=context["null_embeds"],
                 num_images_per_prompt=1,
                 num_inference_steps=config.num_inference_steps,
-                guidance_scale=config.guidance_scale,
+                guidance_scale=gs,
                 run_till_timestep=run_till_timestep,
                 generator=make_sampling_generator(config.device, seed),
                 output_type="latent",
@@ -85,7 +89,7 @@ class SDAnchorSideTrainer():
             noise_pred_target = pipe.unet(
                 xt,
                 timestep,
-                encoder_hidden_states=context["target_embeds"],
+                encoder_hidden_states=target_embeds,
                 timestep_cond=context["timestep_cond"],
                 cross_attention_kwargs=None,
                 added_cond_kwargs=None,
@@ -120,3 +124,26 @@ class SDAnchorSideTrainer():
         ) # (B,)
         
         return mse_distance
+    
+    import torch
+
+    def compute_dw_loss(
+        self,
+        predicted_noise_target: torch.Tensor, # BCWH
+        predicted_noise_anchor: torch.Tensor, # BCWH
+        t: torch.Tensor,                      # B
+        m: float = 1e-5                       # Your constant target loss value
+    ) -> torch.Tensor:
+
+        # 1. Compute the standard MSE distance per batch element -> shape (B,)
+        mse_distance = torch.mean(
+            (predicted_noise_target - predicted_noise_anchor) ** 2, 
+            dim=list(range(1, len(predicted_noise_target.shape))) # dim=[1,2,3]
+        )
+        
+        # 2. Apply the double-well penalty: penalize deviations from the constant 'm'
+        # Each sample's loss becomes zero only if its mse_distance is exactly m
+        instance_double_well_loss = (mse_distance - m) ** 2 # shape (B,)
+        
+        # 3. Average the penalized losses across the batch -> shape ()
+        return torch.mean(instance_double_well_loss)

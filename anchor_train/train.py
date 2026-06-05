@@ -7,6 +7,7 @@ from diffusers import StableDiffusionPipeline
 
 from anchor_train.stepTrainer import SDAnchorStepTrainer
 from anchor_train.trajectoryTrainer import SDAnchorTrajectoryTrainer
+from anchor_train.sideTrainer import SDAnchorSideTrainer
 from anchor_train.config import AnchorConfig
 from anchor_train.utils import save_anchor_embeddings
 from anchor_train.vis import LossVisualizer
@@ -203,7 +204,7 @@ def run_anchor_side_training(config: AnchorConfig) -> str:
     Returns:
         str: A status message indicating completion and final loss.
     """
-    trainer = SDAnchorStepTrainer(config)
+    trainer = SDAnchorSideTrainer(config)
         
     # 2. Load the pipeline
     print(f"Loading Stable Diffusion pipeline: {trainer.default_base_model_id}...")
@@ -242,11 +243,19 @@ def run_anchor_side_training(config: AnchorConfig) -> str:
         t_tensor = torch.tensor([step_result.timestep_index], device=config.device)
         
         # Compute loss
-        loss_tensor = trainer.compute_loss(
-            predicted_noise_target=step_result.target_noise,
-            predicted_noise_anchor=step_result.anchor_noise,
-            t=t_tensor
-        )
+        if is_even:
+            loss_tensor = trainer.compute_dw_loss(
+                predicted_noise_target=step_result.target_noise,
+                predicted_noise_anchor=step_result.anchor_noise,
+                t=t_tensor
+            )
+        else:
+            loss_tensor = trainer.compute_loss(
+                predicted_noise_target=step_result.target_noise,
+                predicted_noise_anchor=step_result.anchor_noise,
+                t=t_tensor
+            )
+                
         
         # Aggregate loss across the batch (assuming batch size of 1, mean is safe)
         loss = loss_tensor.mean()
