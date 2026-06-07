@@ -4,7 +4,7 @@ import sys
 import torch
 
 sys.path.append(".")
-from esd_trainer.esdTrainer import ESDConfig, run_esd_training
+from single_step_train.esdStepTrainer import ESDConfig, run_esd_training
 
 
 def build_parser() -> argparse.ArgumentParser:
