@@ -12,25 +12,13 @@ from typing import Any, Dict, Iterable, Iterator, Mapping, Optional
 import numpy as np
 import torch
 import torch.nn.functional as F
+from diffusers import FluxPipeline, StableDiffusionPipeline, StableDiffusionXLPipeline
+from diffusers.pipelines.flux.pipeline_flux import calculate_shift, retrieve_timesteps as retrieve_flux_timesteps
 from tqdm.auto import tqdm
 
-try:
-    from diffusers import FluxPipeline, StableDiffusionPipeline, StableDiffusionXLPipeline
-    from diffusers.pipelines.flux.pipeline_flux import calculate_shift, retrieve_timesteps as retrieve_flux_timesteps
-except ModuleNotFoundError:
-    FluxPipeline = None
-    StableDiffusionPipeline = None
-    StableDiffusionXLPipeline = None
-    calculate_shift = None
-    retrieve_flux_timesteps = None
-
 from utils.esd_checkpoint import save_esd_checkpoint
-from utils.grad_track import GradientTracker
+from utils.sd_utils import esd_sd_call
 
-try:
-    from utils.sd_utils import esd_sd_call
-except ModuleNotFoundError:
-    esd_sd_call = None
 
 TARGET_MODULE_TYPES = {
     "Linear",
@@ -38,6 +26,21 @@ TARGET_MODULE_TYPES = {
     "LoRACompatibleLinear",
     "LoRACompatibleConv",
 }
+
+
+def flux_latent_patch_grid_hw(
+    height_px: int, width_px: int, vae_scale_factor: int
+) -> tuple[int, int]:
+    """Height/width of the Flux patch grid for packed latents.
+
+    Matches ``FluxPipeline.prepare_latents`` and ``_prepare_latent_image_ids(..., h//2, w//2)``.
+    Same geometry as HuggingFace ``examples/dreambooth/train_dreambooth_flux.py``, which uses
+    ``model_input.shape[2] // 2`` and ``model_input.shape[3] // 2`` on unpacked VAE latents.
+    """
+    latent_h = 2 * (int(height_px) // (vae_scale_factor * 2))
+    latent_w = 2 * (int(width_px) // (vae_scale_factor * 2))
+    return latent_h // 2, latent_w // 2
+
 
 @dataclass
 class ESDConfig:
@@ -60,8 +63,6 @@ class ESDConfig:
     max_sequence_length: int = 77
     gradient_checkpointing: bool = False
     allow_tf32: bool = False
-    target_layers: Optional[list[str]] = None
-    save_gradient: Optional[list[str]] = None
 
     @property
     def erase_from_effective(self) -> str:
@@ -248,12 +249,7 @@ class BaseESDAdapter:
     def trainable_param_dtype(self, config: ESDConfig) -> Optional[torch.dtype]:
         return None
 
-    def select_parameter_names(
-        self,
-        component: torch.nn.Module,
-        train_method: str,
-        config: Optional[ESDConfig] = None,
-    ) -> list[str]:
+    def select_parameter_names(self, component: torch.nn.Module, train_method: str) -> list[str]:
         raise NotImplementedError
 
     def prepare_context(self, pipe, config: ESDConfig) -> Dict[str, Any]:
@@ -293,8 +289,6 @@ class BaseESDAdapter:
         }
         if config.resolution is not None:
             metadata["resolution"] = str(config.resolution)
-        if config.target_layers:
-            metadata["target_layers"] = ",".join(config.target_layers)
         return metadata
 
     def build_checkpoint_path(self, config: ESDConfig) -> str:
@@ -308,7 +302,7 @@ class BaseESDAdapter:
 
     def create_prepared_component(self, pipe, train_method: str, config: ESDConfig) -> PreparedComponent:
         component = getattr(pipe, self.component_attr)
-        parameter_names = self.select_parameter_names(component, train_method, config)
+        parameter_names = self.select_parameter_names(component, train_method)
         return prepare_component(component, parameter_names, trainable_dtype=self.trainable_param_dtype(config))
 
 
@@ -329,7 +323,6 @@ class StableDiffusionESDAdapter(BaseESDAdapter):
             "esd-u": "esd-u",
             "esd-all": "esd-all",
             "esd-x-strict": "esd-x-strict",
-            "specific-layer": "specific-layer",
         }
         normalized = aliases.get(train_method)
         if normalized is None:
@@ -340,8 +333,6 @@ class StableDiffusionESDAdapter(BaseESDAdapter):
         return 5e-5
 
     def load_pipeline(self, config: ESDConfig):
-        if StableDiffusionPipeline is None:
-            raise ModuleNotFoundError("diffusers is required to load Stable Diffusion pipelines.")
         pipe = StableDiffusionPipeline.from_pretrained(
             config.base_model_id,
             torch_dtype=config.torch_dtype,
@@ -353,14 +344,7 @@ class StableDiffusionESDAdapter(BaseESDAdapter):
             pipe.safety_checker.requires_grad_(False)
         return pipe
 
-    def select_parameter_names(
-        self,
-        component: torch.nn.Module,
-        train_method: str,
-        config: Optional[ESDConfig] = None,
-    ) -> list[str]:
-        target_layers = config.target_layers if config is not None else None
-
+    def select_parameter_names(self, component: torch.nn.Module, train_method: str) -> list[str]:
         def selector(module_name: str) -> bool:
             if train_method == "esd-x":
                 return "attn2" in module_name
@@ -372,13 +356,6 @@ class StableDiffusionESDAdapter(BaseESDAdapter):
                 return "attn2.to_k" in module_name or "attn2.to_v" in module_name
             if train_method == "selfattn":
                 return "attn1" in module_name
-            if train_method == "specific-layer":
-                if not target_layers:
-                    raise ValueError("train_method='specific-layer' requires config.target_layers to be set.")
-                return any(
-                    module_name == target_layer or module_name.startswith(f"{target_layer}.")
-                    for target_layer in target_layers
-                )
             return False
 
         return select_parameter_names(component, selector)
@@ -429,8 +406,6 @@ class StableDiffusionESDAdapter(BaseESDAdapter):
         }
 
     def training_step(self, pipe, prepared: PreparedComponent, context: Dict[str, Any], config: ESDConfig) -> StepResult:
-        if esd_sd_call is None:
-            raise ModuleNotFoundError("diffusers is required to run Stable Diffusion ESD training steps.")
         run_till_timestep = random.randint(0, config.num_inference_steps - 1)
         seed = random.randint(0, 2**15)
 
@@ -499,7 +474,6 @@ class StableDiffusionESDAdapter(BaseESDAdapter):
         target = noise_pred_erase_from - config.negative_guidance * (noise_pred_erase - noise_pred_null)
         return StepResult(model_pred=model_pred, target=target, timestep_index=run_till_timestep)
 
-
 ADAPTERS = {
     "sd": StableDiffusionESDAdapter(),
 }
@@ -526,13 +500,6 @@ def run_esd_training(config: ESDConfig) -> str:
 
     prepared = adapter.create_prepared_component(pipe, config.train_method, config)
     prepared.use_student()
-    
-    
-    # --- Track Gradients ---
-    tracker = None
-    if config.save_gradient:
-        tracker = GradientTracker(config.save_gradient)
-        tracker.register_hooks(prepared.component)
 
     learning_rate = adapter.resolve_learning_rate(config)
     optimizer = torch.optim.Adam(prepared.parameters(), lr=learning_rate)
@@ -549,11 +516,6 @@ def run_esd_training(config: ESDConfig) -> str:
         postfix = {"esd_loss": f"{loss.item():.4f}", "timestep": step_result.timestep_index}
         postfix.update({key: str(value) for key, value in step_result.metrics.items()})
         pbar.set_postfix(postfix)
-        
-    # --- Save Gradients and Clean Up ---
-    if tracker:
-        tracker.save_history(config.save_path, config.erase_concept)
-        tracker.remove_hooks()
 
     prepared.use_student()
     checkpoint_path = adapter.build_checkpoint_path(config)

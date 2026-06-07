@@ -4,7 +4,7 @@ import sys
 import torch
 
 sys.path.append(".")
-from trainer import ESDConfig, run_esd_training
+from esd_trainer.esdTrainer import ESDConfig, run_esd_training
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,15 +24,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--guidance_scale", help="guidance scale used to sample xt", type=float, default=3)
     parser.add_argument(
         "--train_method",
-        help="train method (esd-x, esd-u, esd-all, esd-x-strict, selfattn, specific-layer). Legacy aliases still work.",
+        help="train method (esd-x, esd-u, esd-all, esd-x-strict, selfattn). Legacy aliases still work.",
         type=str,
         required=True,
-    )
-    parser.add_argument(
-        "--target_layers",
-        help="module paths to train when --train_method specific-layer is used",
-        nargs="+",
-        default=None,
     )
     parser.add_argument("--iterations", help="number of optimization steps", type=int, default=200)
     parser.add_argument(
@@ -51,12 +45,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--negative_guidance", help="negative guidance value", type=float, default=2)
     parser.add_argument("--save_path", help="directory to save checkpoints", type=str, default="esd-models/sd/")
     parser.add_argument("--device", help="device to train on", type=str, default="cuda:0")
-    parser.add_argument(
-        "--save_gradient",
-        help="List of 2D matrix weight layer names to save gradients for",
-        nargs="+",
-        default=None,
-    )
     return parser
 
 
@@ -78,8 +66,6 @@ def main() -> None:
         save_path=args.save_path,
         device=args.device,
         torch_dtype=torch.bfloat16,
-        target_layers=args.target_layers,
-        save_gradient=args.save_gradient,
     )
     checkpoint_path = run_esd_training(config)
     print(f"Saved checkpoint to {checkpoint_path}")
@@ -87,8 +73,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    gradients = torch.load("esd-models/sd/components_mid_block_attentions_0_transformer_blocks_0_ff_net_0_proj_weight.pt")
-
-    print(gradients.shape)  # Output: torch.Size([iterations, flattened_weights])
-    print(gradients.dtype)  # Matches your training precision (e.g., torch.float32 or torch.bfloat16)
-    print(gradients.device) # Extracted to 'cpu' for safe cross-device loading
